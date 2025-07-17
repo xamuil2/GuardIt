@@ -54,7 +54,6 @@ export default function HomeScreen() {
           <Text style={styles.welcomeSubtitle}>Your security system is active and monitoring</Text>
         </View>
 
-        {/* Enhanced Alert Section - Always Visible */}
         <View style={styles.alertSection}>
           <LinearGradient
             colors={['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
@@ -82,7 +81,6 @@ export default function HomeScreen() {
           </LinearGradient>
         </View>
 
-        {/* Notification Alert - Enhanced */}
         {notification && (
           <View style={styles.notificationContainer}>
             <Text style={styles.notificationTitle}>Latest Security Alert</Text>
