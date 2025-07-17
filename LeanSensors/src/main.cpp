@@ -20,7 +20,7 @@ const int BLUE_PIN = 11;
 const int BUZZER_PIN = 8;
 
 // Shake detection variables
-const float SHAKE_THRESHOLD = 1.0;  // Adjust this value to change sensitivity (higher = less sensitive)
+const float SHAKE_THRESHOLD = 0.2;  // Adjust this value to change sensitivity (higher = less sensitive)
 const unsigned long SHAKE_DEBOUNCE = 500;  // Minimum time between shake detections (ms)
 unsigned long lastShakeTime = 0;
 
