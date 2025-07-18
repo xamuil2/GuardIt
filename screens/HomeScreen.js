@@ -111,7 +111,7 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.cardTitle}>Live Video</Text>
               <Text style={styles.cardSubtitle}>Camera monitoring active</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => Alert.alert('Live Video', 'This will show the live video feed!')}>
+              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('CameraFeed')}>
                 <Text style={styles.cardButtonText}>VIEW FEED</Text>
               </TouchableOpacity>
             </LinearGradient>
@@ -482,4 +482,4 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 20,
   },
-}); 
+});
