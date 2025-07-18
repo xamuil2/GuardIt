@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 import sys
 import os
+import socket
 sys.path.append('.')
 
 from detector import MultiModelPersonDetector
@@ -186,8 +187,28 @@ def take_screenshot():
 def video_stream():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+def get_local_ip():
+    """Get the local IP address of this machine"""
+    try:
+        # Connect to a remote address to determine local IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "Unable to determine IP"
+
 if __name__ == '__main__':
+    local_ip = get_local_ip()
+    port = 8090
+
     print("Starting GuardIt Camera Server...")
-    print("Server will be available at: http://localhost:8090")
+    print(f"Server will be available at:")
+    print(f"  Local access: http://localhost:{port}")
+    print(f"  Network access: http://{local_ip}:{port}")
     print("Make sure your camera is connected and accessible")
-    app.run(host='0.0.0.0', port=8090, debug=True, threaded=True)
+    print("Access /video_feed for the camera stream")
+    print("Press CTRL+C to stop the server")
+
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)
