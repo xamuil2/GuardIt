@@ -7,12 +7,14 @@ import * as Device from 'expo-device';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import NotificationService from '../services/NotificationService';
 
 const { width, height } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const [expoPushToken, setExpoPushToken] = useState('');
   const [notification, setNotification] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -20,14 +22,26 @@ export default function HomeScreen() {
     const subscription = Notifications.addNotificationReceivedListener(notification => {
       setNotification(notification);
     });
-    return () => subscription.remove();
+    
+    NotificationService.initialize();
+    
+    const loadUnreadCount = () => {
+      setUnreadCount(NotificationService.getUnreadCount());
+    };
+    loadUnreadCount();
+    
+    const interval = setInterval(loadUnreadCount, 5000);
+    
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
   }, []);
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
     } catch (error) {
-      console.error('Logout error:', error);
     }
   };
 
@@ -111,7 +125,7 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.cardTitle}>Live Video</Text>
               <Text style={styles.cardSubtitle}>Camera monitoring active</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => Alert.alert('Live Video', 'This will show the live video feed!')}>
+              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('Camera')}>
                 <Text style={styles.cardButtonText}>VIEW FEED</Text>
               </TouchableOpacity>
             </LinearGradient>
@@ -140,11 +154,34 @@ export default function HomeScreen() {
             >
               <View style={styles.cardIconContainer}>
                 <Ionicons name="notifications" size={36} color="#ff4444"/>
+                {unreadCount > 0 && (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                  </View>
+                )}
               </View>
               <Text style={styles.cardTitle}>Notifications</Text>
-              <Text style={styles.cardSubtitle}>Alert system ready</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => Alert.alert('Notifications', 'This will open notification settings!')}>
-                <Text style={styles.cardButtonText}>SETTINGS</Text>
+              <Text style={styles.cardSubtitle}>
+                {unreadCount > 0 ? `${unreadCount} unread alert${unreadCount !== 1 ? 's' : ''}` : 'Alert system ready'}
+              </Text>
+              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('Notifications')}>
+                <Text style={styles.cardButtonText}>SEE NOTIFICATIONS</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+
+          <View style={styles.statusCard}>
+            <LinearGradient
+              colors={['rgba(255, 68,68, 0.15)', 'rgba(255, 68,68, 0.25)']}
+              style={styles.cardGradient}
+            >
+              <View style={styles.cardIconContainer}>
+                <Ionicons name="speedometer" size={36} color="#ff4444"/>
+              </View>
+              <Text style={styles.cardTitle}>IMU Sensor</Text>
+              <Text style={styles.cardSubtitle}>Arduino motion detection</Text>
+              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('IMU')}>
+                <Text style={styles.cardButtonText}>CONNECT ARDUINO</Text>
               </TouchableOpacity>
             </LinearGradient>
           </View>
@@ -314,6 +351,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 68, 68, 0.3)',
+    position: 'relative',
+  },
+  unreadBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#ff4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#0a0a0a',
+  },
+  unreadBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   cardTitle: {
     fontSize: 20,
