@@ -73,8 +73,7 @@ class NotificationService {
       if (this.notifications.length > 100) {
         this.notifications = this.notifications.slice(0, 100);
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   async loadNotifications() {
@@ -95,29 +94,25 @@ class NotificationService {
       if (notification) {
         notification.read = true;
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   async markAllAsRead() {
     try {
       this.notifications.forEach(n => n.read = true);
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   async clearAllNotifications() {
     try {
       this.notifications = [];
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   async deleteNotification(notificationId) {
     try {
       this.notifications = this.notifications.filter(n => n.id !== notificationId);
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   formatTimestamp(timestamp) {

@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 
 class CameraService {
   constructor() {
-    this.baseURL = 'http://192.168.1.100:5000';
+    this.baseURL = 'http://192.168.1.100:8090';
     this.isConnected = false;
     this.isStreaming = false;
     this.motionDetected = false;
@@ -12,7 +12,7 @@ class CameraService {
 
   setServerIP = (ipAddress) => {
     const cleanIP = ipAddress.replace(/^https?:\/\//, '');
-    this.baseURL = `http://${cleanIP}:5000`;
+    this.baseURL = `http://${cleanIP}:8090`;
   };
 
   testConnection = async () => {
@@ -184,8 +184,7 @@ class CameraService {
       if (this.onMotionDetected) {
         this.onMotionDetected();
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   };
 
   getStreamURL = () => {

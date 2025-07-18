@@ -128,8 +128,7 @@ class WiFiService {
       if (error.name === 'AbortError') {
         return await this.getIMUDataFromAlternativeEndpoints();
       } else {
-        if (!error.message.includes('Network request failed')) {
-      }
+  
       return null;
     }
     }

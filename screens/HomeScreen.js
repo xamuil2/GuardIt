@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, Alert, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, Alert, Dimensions, Linking, TextInput } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 import * as Notifications from 'expo-notifications';
@@ -42,6 +42,52 @@ export default function HomeScreen() {
     try {
       await signOut(auth);
     } catch (error) {
+    }
+  };
+
+  const [cameraIP, setCameraIP] = useState('172.20.10.8:8090');
+
+  const openCameraFeed = async () => {
+    try {
+      const url = `http://${cameraIP}`;
+      
+
+      Alert.alert(
+        'Opening Safari',
+        `Opening: ${url}\nThis will launch Safari outside the simulator.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Open', 
+            onPress: async () => {
+              try {
+                const canOpen = await Linking.canOpenURL(url);
+                if (canOpen) {
+                  await Linking.openURL(url);
+                } else {
+                  Alert.alert(
+                    'Error',
+                    `Cannot open URL: ${url}\nPlease check the IP address format.`,
+                    [{ text: 'OK' }]
+                  );
+                }
+              } catch (error) {
+                Alert.alert(
+                  'Error',
+                  `Failed to open camera feed: ${error.message}`,
+                  [{ text: 'OK' }]
+                );
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        `Failed to prepare camera feed: ${error.message}`,
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -124,28 +170,28 @@ export default function HomeScreen() {
                 <Ionicons name="videocam" size={36} color="#ff4444"/>
               </View>
               <Text style={styles.cardTitle}>Live Video</Text>
-              <Text style={styles.cardSubtitle}>Camera monitoring active</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('CameraFeed')}>
-                <Text style={styles.cardButtonText}>VIEW FEED</Text>
+              <Text style={styles.cardSubtitle}>Enter camera server IP</Text>
+              
+              <View style={styles.ipInputContainer}>
+                <TextInput
+                  style={styles.ipInput}
+                  value={cameraIP}
+                  onChangeText={setCameraIP}
+                  placeholder="192.168.1.100:8090"
+                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              
+              <TouchableOpacity style={styles.cardButton} onPress={openCameraFeed}>
+                <Text style={styles.cardButtonText}>OPEN IN SAFARI</Text>
               </TouchableOpacity>
             </LinearGradient>
           </View>
 
-          <View style={styles.statusCard}>
-            <LinearGradient
-              colors={['rgba(255, 68,68, 0.15)', 'rgba(255, 68,68, 0.25)']}
-              style={styles.cardGradient}
-            >
-              <View style={styles.cardIconContainer}>
-                <Ionicons name="location" size={36} color="#ff4444"/>
-              </View>
-              <Text style={styles.cardTitle}>Location</Text>
-              <Text style={styles.cardSubtitle}>Device tracking enabled</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('Map')}>
-                <Text style={styles.cardButtonText}>VIEW MAP</Text>
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
+
 
           <View style={styles.statusCard}>
             <LinearGradient
@@ -381,9 +427,24 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     fontSize: 14,
     color: '#ccc',
-    marginBottom: 20,
+    marginBottom: 15,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  ipInputContainer: {
+    marginBottom: 15,
+    width: '100%',
+  },
+  ipInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: 'white',
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   cardButton: {
     backgroundColor: 'rgba(255, 68,68, 0.2)',

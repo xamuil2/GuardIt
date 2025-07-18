@@ -14,7 +14,7 @@ export default function CameraScreen() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [motionDetected, setMotionDetected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [serverIP, setServerIP] = useState('192.168.1.100');
+  const [serverIP, setServerIP] = useState('172.20.10.14:8090');
   const [streamURL, setStreamURL] = useState('');
   const [cameraSettings, setCameraSettings] = useState(null);
   const [detectionStats, setDetectionStats] = useState(null);
@@ -75,7 +75,7 @@ export default function CameraScreen() {
       setConnectionStatus('Connection failed');
       Alert.alert(
         'Connection Error', 
-        'Failed to connect to OpenCV camera server. Please check:\n\n1. OpenCV server is running on your computer\n2. IP address is correct\n3. Both devices are on same network\n4. Port 5000 is accessible'
+        'Failed to connect to OpenCV camera server. Please check:\n\n1. OpenCV server is running on your computer\n2. IP address is correct\n3. Both devices are on same network\n4. Port 8090 is accessible'
       );
     }
     
