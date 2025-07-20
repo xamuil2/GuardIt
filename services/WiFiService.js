@@ -3,7 +3,7 @@ import NotificationService from './NotificationService';
 
 class WiFiService {
   constructor() {
-    this.baseURL = 'http://192.168.1.100';
+    this.baseURL = 'http://192.168.1.100:8080';  // Default to Pi port
     this.isConnected = false;
     this.pollingInterval = null;
     this.onDataReceived = null;
@@ -13,6 +13,7 @@ class WiFiService {
     this.lastChangeValues = [];
     this.isLEDRed = false;
     this.lastSpikeTime = 0;
+    this.deviceType = 'unknown'; // 'arduino' or 'raspberry-pi'
   }
 
   setArduinoIP = (ipAddress) => {
@@ -21,7 +22,8 @@ class WiFiService {
     if (cleanIP.includes(':')) {
       this.baseURL = `http://${cleanIP}`;
     } else {
-    this.baseURL = `http://${cleanIP}`;
+      // Auto-detect device type and set appropriate port
+      this.baseURL = `http://${cleanIP}:8080`; // Default to Pi port first
     }
   };
 
@@ -42,6 +44,13 @@ class WiFiService {
       clearTimeout(timeoutId);
       
       if (response.ok) {
+        const data = await response.json();
+        // Detect device type from response
+        if (data.type === 'raspberry-pi' || data.name?.includes('GuardIt IMU Server')) {
+          this.deviceType = 'raspberry-pi';
+        } else {
+          this.deviceType = 'arduino';
+        }
         this.isConnected = true;
         return true;
       } else {
@@ -60,7 +69,8 @@ class WiFiService {
 
   tryAlternativeEndpoints = async () => {
     const alternativeEndpoints = ['/imu', '/data', '/sensor', '/'];
-    const alternativePorts = [80, 8080];
+    // Try Raspberry Pi port first, then Arduino port
+    const alternativePorts = [8080, 80];
     
     for (const port of alternativePorts) {
       const baseURLWithPort = this.baseURL.replace(/:\d+/, '') + `:${port}`;
@@ -82,6 +92,13 @@ class WiFiService {
           clearTimeout(timeoutId);
           
           if (response.ok) {
+            const data = await response.json();
+            // Detect device type
+            if (data.type === 'raspberry-pi' || data.name?.includes('GuardIt IMU Server')) {
+              this.deviceType = 'raspberry-pi';
+            } else {
+              this.deviceType = 'arduino';
+            }
             this.isConnected = true;
             this.baseURL = baseURLWithPort;
             return true;
@@ -382,6 +399,151 @@ class WiFiService {
 
   getBaseURL = () => {
     return this.baseURL;
+  };
+
+  getDeviceType = () => {
+    return this.deviceType;
+  };
+
+  // Camera-related methods
+  getCameraStatus = async () => {
+    try {
+      const response = await fetch(`${this.baseURL}/camera`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to get camera status' };
+      }
+    } catch (error) {
+      return { error: `Camera status error: ${error.message}` };
+    }
+  };
+
+  captureCSIImage = async (width = 640, height = 480) => {
+    try {
+      const response = await fetch(`${this.baseURL}/camera/csi?width=${width}&height=${height}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to capture CSI image' };
+      }
+    } catch (error) {
+      return { error: `CSI capture error: ${error.message}` };
+    }
+  };
+
+  captureUSBImage = async (width = 640, height = 480) => {
+    try {
+      const response = await fetch(`${this.baseURL}/camera/usb?width=${width}&height=${height}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to capture USB image' };
+      }
+    } catch (error) {
+      return { error: `USB capture error: ${error.message}` };
+    }
+  };
+
+  captureBothImages = async (width = 640, height = 480) => {
+    try {
+      const response = await fetch(`${this.baseURL}/camera/both?width=${width}&height=${height}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to capture from both cameras' };
+      }
+    } catch (error) {
+      return { error: `Dual capture error: ${error.message}` };
+    }
+  };
+
+  startCameraStream = async () => {
+    try {
+      const response = await fetch(`${this.baseURL}/stream/start`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to start camera stream' };
+      }
+    } catch (error) {
+      return { error: `Stream start error: ${error.message}` };
+    }
+  };
+
+  stopCameraStream = async () => {
+    try {
+      const response = await fetch(`${this.baseURL}/stream/stop`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to stop camera stream' };
+      }
+    } catch (error) {
+      return { error: `Stream stop error: ${error.message}` };
+    }
+  };
+
+  getStreamFrame = async () => {
+    try {
+      const response = await fetch(`${this.baseURL}/stream/frame`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { error: 'Failed to get stream frame' };
+      }
+    } catch (error) {
+      return { error: `Stream frame error: ${error.message}` };
+    }
   };
 
   destroy = () => {

@@ -12,10 +12,11 @@ export default function IMUScreen() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [arduinoIP, setArduinoIP] = useState('172.20.10.11');
+  const [arduinoIP, setArduinoIP] = useState('192.168.1.100:8080'); // Default to Pi
   const [connectionRetries, setConnectionRetries] = useState(0);
   const [lastError, setLastError] = useState(null);
   const [connectedPort, setConnectedPort] = useState(null);
+  const [deviceType, setDeviceType] = useState('unknown');
   const [notificationCount, setNotificationCount] = useState(0);
   const navigation = useNavigation();
 
@@ -64,6 +65,7 @@ export default function IMUScreen() {
       setIsConnected(true);
       setConnectionStatus('Connected');
       setConnectionRetries(0);
+      setDeviceType(WiFiService.getDeviceType());
       
       const baseURL = WiFiService.getBaseURL();
       const portMatch = baseURL.match(/:(\d+)/);
@@ -78,7 +80,7 @@ export default function IMUScreen() {
       
       Alert.alert(
         'Connection Error', 
-        `Failed to connect to Arduino at ${arduinoIP}.\n\nPlease check:\n\n1. Arduino is powered on and connected to WiFi\n2. WiFi credentials are correct in Arduino code\n3. IP address is correct (check Serial Monitor)\n4. Both devices are on same WiFi network\n5. No firewall blocking port 80\n\nTried ${maxRetries} times.`,
+        `Failed to connect to device at ${arduinoIP}.\n\nPlease check:\n\n1. Device is powered on and connected to WiFi\n2. WiFi credentials are correct\n3. IP address is correct\n4. Both devices are on same WiFi network\n5. For Raspberry Pi: Server is running (python3 imu_wifi_server.py)\n6. For Arduino: No firewall blocking ports\n\nTried ${maxRetries} times.`,
         [
           { text: 'OK' },
           { 
@@ -242,6 +244,15 @@ export default function IMUScreen() {
               <View style={styles.portIndicator}>
                 <Ionicons name="wifi" size={16} color="#44ff44"/>
                 <Text style={styles.portText}>Connected on port {connectedPort}</Text>
+              </View>
+            )}
+            
+            {deviceType !== 'unknown' && (
+              <View style={styles.deviceIndicator}>
+                <Ionicons name={deviceType === 'raspberry-pi' ? "hardware-chip" : "flash"} size={16} color="#44ff44"/>
+                <Text style={styles.deviceText}>
+                  {deviceType === 'raspberry-pi' ? 'Raspberry Pi' : 'Arduino'} Device
+                </Text>
               </View>
             )}
             
@@ -467,6 +478,21 @@ const styles = StyleSheet.create({
   portText: {
     fontSize: 14,
     color: '#44ff44',
+    marginLeft: 8,
+    fontWeight: 'bold',
+  },
+  deviceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(68, 170, 255, 0.2)',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 15,
+  },
+  deviceText: {
+    fontSize: 14,
+    color: '#44aaff',
     marginLeft: 8,
     fontWeight: 'bold',
   },

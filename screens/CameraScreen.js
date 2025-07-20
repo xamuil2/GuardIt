@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Dimensions, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Dimensions, TextInput, Image, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
+import WiFiService from '../services/WiFiService';
 import CameraService from '../services/CameraService';
 
 const { width, height } = Dimensions.get('window');
@@ -19,8 +20,17 @@ export default function CameraScreen() {
   const [cameraSettings, setCameraSettings] = useState(null);
   const [detectionStats, setDetectionStats] = useState(null);
   const [screenshotCount, setScreenshotCount] = useState(0);
+  
+  // New Raspberry Pi camera states
+  const [cameraStatus, setCameraStatus] = useState(null);
+  const [lastImage, setLastImage] = useState(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [streamFrame, setStreamFrame] = useState(null);
+  const [useNewCamera, setUseNewCamera] = useState(true); // Toggle between old and new camera system
+  
   const navigation = useNavigation();
   const motionCheckInterval = useRef(null);
+  const streamInterval = useRef(null);
 
   useEffect(() => {
     CameraService.setMotionCallback(() => {
@@ -29,14 +39,23 @@ export default function CameraScreen() {
     });
 
     checkConnectionStatus();
+    
+    // Check WiFi connection and load camera status
+    setIsConnected(WiFiService.getConnectionStatus());
+    if (WiFiService.getConnectionStatus() && useNewCamera) {
+      loadCameraStatus();
+    }
 
     return () => {
       CameraService.setMotionCallback(null);
       if (motionCheckInterval.current) {
         clearInterval(motionCheckInterval.current);
       }
+      if (streamInterval.current) {
+        clearInterval(streamInterval.current);
+      }
     };
-  }, []);
+  }, [useNewCamera]);
 
   const checkConnectionStatus = async () => {
     const connected = await CameraService.testConnection();
@@ -120,6 +139,9 @@ export default function CameraScreen() {
     if (motionCheckInterval.current) {
       clearInterval(motionCheckInterval.current);
     }
+    if (streamInterval.current) {
+      clearInterval(streamInterval.current);
+    }
     CameraService.destroy();
     setIsConnected(false);
     setIsStreaming(false);
@@ -127,6 +149,148 @@ export default function CameraScreen() {
     setConnectionStatus('Disconnected');
     setStreamURL('');
     setDetectionStats(null);
+    
+    // Reset new camera states
+    setLastImage(null);
+    setStreamFrame(null);
+    setCameraStatus(null);
+  };
+
+  // New Raspberry Pi camera functions
+  const loadCameraStatus = async () => {
+    try {
+      const status = await WiFiService.getCameraStatus();
+      setCameraStatus(status);
+    } catch (error) {
+      console.log('Failed to load camera status:', error);
+    }
+  };
+
+  const captureCSI = async () => {
+    if (!isConnected) {
+      Alert.alert('Not Connected', 'Please connect to the Raspberry Pi first');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const result = await WiFiService.captureCSIImage();
+      if (result.success) {
+        setLastImage({
+          type: 'CSI',
+          data: result.image,
+          timestamp: result.timestamp
+        });
+      } else {
+        Alert.alert('Capture Failed', result.error || 'Failed to capture CSI image');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to capture CSI image');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const captureUSB = async () => {
+    if (!isConnected) {
+      Alert.alert('Not Connected', 'Please connect to the Raspberry Pi first');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const result = await WiFiService.captureUSBImage();
+      if (result.success) {
+        setLastImage({
+          type: 'USB',
+          data: result.image,
+          timestamp: result.timestamp
+        });
+      } else {
+        Alert.alert('Capture Failed', result.error || 'Failed to capture USB image');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to capture USB image');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const captureBoth = async () => {
+    if (!isConnected) {
+      Alert.alert('Not Connected', 'Please connect to the Raspberry Pi first');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const result = await WiFiService.captureBothImages();
+      if (result.cameras) {
+        setLastImage({
+          type: 'Both',
+          data: result.cameras,
+          timestamp: result.timestamp
+        });
+      } else {
+        Alert.alert('Capture Failed', 'Failed to capture from both cameras');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to capture from both cameras');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const toggleNewCameraStreaming = async () => {
+    if (!isConnected) {
+      Alert.alert('Not Connected', 'Please connect to the Raspberry Pi first');
+      return;
+    }
+
+    if (isStreaming) {
+      // Stop streaming
+      try {
+        await WiFiService.stopCameraStream();
+        setIsStreaming(false);
+        setStreamFrame(null);
+        if (streamInterval.current) {
+          clearInterval(streamInterval.current);
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to stop streaming');
+      }
+    } else {
+      // Start streaming
+      try {
+        const result = await WiFiService.startCameraStream();
+        if (result.success) {
+          setIsStreaming(true);
+          startNewStreamingFrames();
+        } else {
+          Alert.alert('Streaming Failed', result.error || 'Failed to start streaming');
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to start streaming');
+      }
+    }
+  };
+
+  const startNewStreamingFrames = () => {
+    streamInterval.current = setInterval(async () => {
+      if (!isStreaming) {
+        clearInterval(streamInterval.current);
+        return;
+      }
+
+      try {
+        const frame = await WiFiService.getStreamFrame();
+        if (frame.success) {
+          setStreamFrame(frame.frame);
+        }
+      } catch (error) {
+        // Silently fail for streaming frames
+      }
+    }, 200); // 5 FPS
   };
 
   const takeScreenshot = async () => {
@@ -333,6 +497,154 @@ export default function CameraScreen() {
         </LinearGradient>
       </View>
 
+      {/* Camera System Toggle */}
+      <View style={styles.toggleSection}>
+        <Text style={styles.toggleTitle}>Camera System:</Text>
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity 
+            style={[styles.toggleButton, !useNewCamera && styles.toggleButtonActive]}
+            onPress={() => setUseNewCamera(false)}
+          >
+            <Text style={[styles.toggleText, !useNewCamera && styles.toggleTextActive]}>OpenCV Server</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.toggleButton, useNewCamera && styles.toggleButtonActive]}
+            onPress={() => setUseNewCamera(true)}
+          >
+            <Text style={[styles.toggleText, useNewCamera && styles.toggleTextActive]}>Raspberry Pi Camera</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* New Raspberry Pi Camera System */}
+      {useNewCamera && (
+        <ScrollView style={styles.newCameraSection} showsVerticalScrollIndicator={false}>
+          {/* Camera Status */}
+          {cameraStatus && (
+            <View style={styles.cameraStatusContainer}>
+              <Text style={styles.sectionTitle}>📹 Camera Status</Text>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>CSI Camera:</Text>
+                <Text style={[styles.statusValue, { color: cameraStatus.camera_status?.csi_available ? '#4CAF50' : '#f44336' }]}>
+                  {cameraStatus.camera_status?.csi_available ? 'Available' : 'Not Available'}
+                </Text>
+              </View>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>USB Camera:</Text>
+                <Text style={[styles.statusValue, { color: cameraStatus.camera_status?.usb_available ? '#4CAF50' : '#f44336' }]}>
+                  {cameraStatus.camera_status?.usb_available ? `Available (ID: ${cameraStatus.camera_status?.usb_device_id})` : 'Not Available'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Camera Controls */}
+          <View style={styles.controlsContainer}>
+            <Text style={styles.sectionTitle}>📸 Camera Controls</Text>
+            
+            <TouchableOpacity
+              style={[styles.button, (!isConnected || !cameraStatus?.camera_status?.csi_available) && styles.buttonDisabled]}
+              onPress={captureCSI}
+              disabled={!isConnected || !cameraStatus?.camera_status?.csi_available || isCapturing}
+            >
+              <Ionicons name="camera" size={20} color="#ffffff" />
+              <Text style={styles.buttonText}>
+                {isCapturing ? 'Capturing...' : 'Capture CSI Camera'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, (!isConnected || !cameraStatus?.camera_status?.usb_available) && styles.buttonDisabled]}
+              onPress={captureUSB}
+              disabled={!isConnected || !cameraStatus?.camera_status?.usb_available || isCapturing}
+            >
+              <Ionicons name="videocam" size={20} color="#ffffff" />
+              <Text style={styles.buttonText}>
+                {isCapturing ? 'Capturing...' : 'Capture USB Camera'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, (!isConnected || !cameraStatus?.available_endpoints?.dual_capture) && styles.buttonDisabled]}
+              onPress={captureBoth}
+              disabled={!isConnected || !cameraStatus?.available_endpoints?.dual_capture || isCapturing}
+            >
+              <Ionicons name="albums" size={20} color="#ffffff" />
+              <Text style={styles.buttonText}>
+                {isCapturing ? 'Capturing...' : 'Capture Both Cameras'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, styles.streamButton, (!isConnected || !cameraStatus?.camera_status?.usb_available) && styles.buttonDisabled]}
+              onPress={toggleNewCameraStreaming}
+              disabled={!isConnected || !cameraStatus?.camera_status?.usb_available}
+            >
+              <Ionicons name={isStreaming ? "stop" : "play"} size={20} color="#ffffff" />
+              <Text style={styles.buttonText}>
+                {isStreaming ? 'Stop Streaming' : 'Start Live Stream'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Live Stream */}
+          {isStreaming && streamFrame && (
+            <View style={styles.streamContainer}>
+              <Text style={styles.imageTitle}>Live Stream (USB Camera)</Text>
+              <Image 
+                source={{ uri: `data:image/jpeg;base64,${streamFrame}` }}
+                style={styles.streamImage}
+                resizeMode="contain"
+              />
+            </View>
+          )}
+
+          {/* Last Captured Image */}
+          {lastImage && (
+            <View style={styles.imageContainer}>
+              <Text style={styles.imageTitle}>
+                {lastImage.type === 'Both' ? 'Dual Camera Capture' : `${lastImage.type} Camera`}
+              </Text>
+              
+              {lastImage.type === 'Both' ? (
+                <View style={styles.dualImageContainer}>
+                  {lastImage.data.csi && lastImage.data.csi.success && (
+                    <View style={styles.singleImageContainer}>
+                      <Text style={styles.cameraLabel}>CSI Camera</Text>
+                      <Image 
+                        source={{ uri: `data:image/jpeg;base64,${lastImage.data.csi.image}` }}
+                        style={styles.smallImage}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                  {lastImage.data.usb && lastImage.data.usb.success && (
+                    <View style={styles.singleImageContainer}>
+                      <Text style={styles.cameraLabel}>USB Camera</Text>
+                      <Image 
+                        source={{ uri: `data:image/jpeg;base64,${lastImage.data.usb.image}` }}
+                        style={styles.smallImage}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <Image 
+                  source={{ uri: `data:image/jpeg;base64,${lastImage.data}` }}
+                  style={styles.fullImage}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* Old OpenCV Camera System */}
+      {!useNewCamera && (
+        <View style={styles.oldCameraSection}>
+
       {motionDetected && (
         <View style={styles.motionAlert}>
           <LinearGradient
@@ -406,6 +718,153 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1
+  },
+  // New styles for camera system toggle
+  toggleSection: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  toggleTitle: {
+    fontSize: 16,
+    color: 'white',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    padding: 2,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: 'rgba(68, 255, 68, 0.3)',
+  },
+  toggleText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  toggleTextActive: {
+    color: '#44ff44',
+  },
+  // New camera system styles
+  newCameraSection: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  oldCameraSection: {
+    flex: 1,
+  },
+  cameraStatusContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 15,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  statusLabel: {
+    fontSize: 16,
+    color: '#cccccc',
+  },
+  statusValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  controlsContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+  },
+  button: {
+    backgroundColor: '#007AFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  streamButton: {
+    backgroundColor: '#FF6B35',
+  },
+  buttonDisabled: {
+    backgroundColor: '#666666',
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  imageContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+  },
+  streamContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+  },
+  imageTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  fullImage: {
+    width: width - 80,
+    height: 200,
+    borderRadius: 10,
+    alignSelf: 'center',
+  },
+  streamImage: {
+    width: width - 80,
+    height: 180,
+    borderRadius: 10,
+    alignSelf: 'center',
+  },
+  dualImageContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  singleImageContainer: {
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  cameraLabel: {
+    fontSize: 14,
+    color: '#cccccc',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  smallImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 10,
   },
   header: {
     flexDirection: 'row',
