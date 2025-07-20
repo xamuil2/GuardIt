@@ -13,7 +13,6 @@ export default function IMUScreen() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const [arduinoIP, setArduinoIP] = useState('172.20.10.11');
-  const [isPolling, setIsPolling] = useState(false);
   const [connectionRetries, setConnectionRetries] = useState(0);
   const [lastError, setLastError] = useState(null);
   const [connectedPort, setConnectedPort] = useState(null);
@@ -73,7 +72,6 @@ export default function IMUScreen() {
       }
       
       WiFiService.startPolling(500);
-      setIsPolling(true);
     } else {
       setConnectionStatus('Connection failed');
       setLastError('Failed to connect after multiple attempts');
@@ -100,7 +98,6 @@ export default function IMUScreen() {
   const disconnect = () => {
     WiFiService.stopPolling();
     setIsConnected(false);
-    setIsPolling(false);
     setConnectionStatus('Disconnected');
     setConnectionRetries(0);
     setLastError(null);
@@ -207,25 +204,6 @@ export default function IMUScreen() {
     return foundDevices;
   };
 
-  const togglePolling = () => {
-    if (isPolling) {
-      WiFiService.stopPolling();
-      setIsPolling(false);
-    } else {
-      WiFiService.startPolling(200);
-      setIsPolling(true);
-    }
-  };
-
-  const testNotification = async () => {
-    try {
-      const result = await NotificationService.triggerLEDAlert();
-      Alert.alert('Test Notification', 'Test notification sent successfully!');
-    } catch (error) {
-      Alert.alert('Test Failed', 'Failed to send test notification');
-    }
-  };
-
   return (
     <LinearGradient
       colors={['#0a0a0a', '#1a1a1a', '#2d1b1b']}
@@ -238,7 +216,7 @@ export default function IMUScreen() {
         >
           <Ionicons name="arrow-back" size={24} color="white"/>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>IMU Sensor</Text>
+        <Text style={styles.headerTitle}>Arduino Connection</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -328,34 +306,6 @@ export default function IMUScreen() {
                   </LinearGradient>
                 </TouchableOpacity>
               )}
-              
-              <TouchableOpacity 
-                style={styles.testButton} 
-                onPress={testNotification}
-              >
-                <LinearGradient
-                  colors={['#ffaa00', '#ffcc00']}
-                  style={styles.buttonGradient}
-                >
-                  <Ionicons name="notifications" size={20} color="white"/>
-                  <Text style={styles.buttonText}>Test Notification</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.pollingButton} 
-                onPress={togglePolling}
-              >
-                <LinearGradient
-                  colors={isPolling ? ['#44ff44', '#66ff66'] : ['#666666', '#888888']}
-                  style={styles.buttonGradient}
-                >
-                  <Ionicons name={isPolling ? "pause" : "play"} size={20} color="white"/>
-                  <Text style={styles.buttonText}>
-                    {isPolling ? 'Stop Polling' : 'Start Polling'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
             </View>
           </LinearGradient>
         </View>
@@ -534,15 +484,5 @@ const styles = StyleSheet.create({
     color: '#ffaa00',
     marginLeft: 8,
     fontWeight: 'bold',
-  },
-  testButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  pollingButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    width: '100%',
   },
 }); 

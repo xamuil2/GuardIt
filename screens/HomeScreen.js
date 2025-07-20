@@ -223,7 +223,7 @@ export default function HomeScreen() {
               <View style={styles.cardIconContainer}>
                 <Ionicons name="speedometer" size={36} color="#ff4444"/>
               </View>
-              <Text style={styles.cardTitle}>IMU Sensor</Text>
+              <Text style={styles.cardTitle}>Arduino Connection</Text>
               <Text style={styles.cardSubtitle}>Arduino motion detection</Text>
               <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('IMU')}>
                 <Text style={styles.cardButtonText}>CONNECT ARDUINO</Text>
