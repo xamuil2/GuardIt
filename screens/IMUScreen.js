@@ -212,7 +212,7 @@ export default function IMUScreen() {
       WiFiService.stopPolling();
       setIsPolling(false);
     } else {
-      WiFiService.startPolling(500);
+      WiFiService.startPolling(200);
       setIsPolling(true);
     }
   };
@@ -328,6 +328,34 @@ export default function IMUScreen() {
                   </LinearGradient>
                 </TouchableOpacity>
               )}
+              
+              <TouchableOpacity 
+                style={styles.testButton} 
+                onPress={testNotification}
+              >
+                <LinearGradient
+                  colors={['#ffaa00', '#ffcc00']}
+                  style={styles.buttonGradient}
+                >
+                  <Ionicons name="notifications" size={20} color="white"/>
+                  <Text style={styles.buttonText}>Test Notification</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.pollingButton} 
+                onPress={togglePolling}
+              >
+                <LinearGradient
+                  colors={isPolling ? ['#44ff44', '#66ff66'] : ['#666666', '#888888']}
+                  style={styles.buttonGradient}
+                >
+                  <Ionicons name={isPolling ? "pause" : "play"} size={20} color="white"/>
+                  <Text style={styles.buttonText}>
+                    {isPolling ? 'Stop Polling' : 'Start Polling'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           </LinearGradient>
         </View>
@@ -413,6 +441,7 @@ const styles = StyleSheet.create({
   },
   connectionButtons: {
     width: '100%',
+    gap: 10,
   },
   connectButton: {
     borderRadius: 15,
@@ -505,5 +534,15 @@ const styles = StyleSheet.create({
     color: '#ffaa00',
     marginLeft: 8,
     fontWeight: 'bold',
+  },
+  testButton: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  pollingButton: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    width: '100%',
   },
 }); 

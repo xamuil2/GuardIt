@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import NotificationService from '../services/NotificationService';
-
 const { width, height } = Dimensions.get('window');
 
 export default function NotificationsScreen() {

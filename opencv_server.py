@@ -300,7 +300,4 @@ def index():
     '''
 
 if __name__ == '__main__':
-    print("Starting GuardIt Camera Server...")
-    print("Server will be available at: http://localhost:5000")
-    print("Make sure your camera is connected and accessible")
     app.run(host='0.0.0.0', port=5000, debug=True, threaded=True) 

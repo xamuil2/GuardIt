@@ -10,7 +10,6 @@ import { useNavigation } from '@react-navigation/native';
 import NotificationService from '../services/NotificationService';
 
 const { width, height } = Dimensions.get('window');
-
 export default function HomeScreen() {
   const [expoPushToken, setExpoPushToken] = useState('');
   const [notification, setNotification] = useState(false);

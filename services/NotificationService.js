@@ -5,6 +5,8 @@ class NotificationService {
     this.notifications = [];
     this.isInitialized = false;
     this.useAsyncStorage = false;
+    this.lastNotificationTime = 0;
+    this.notificationCooldown = 500;
     this.loadNotifications();
   }
 
@@ -35,6 +37,14 @@ class NotificationService {
 
   async triggerLEDAlert() {
     try {
+      const now = Date.now();
+      
+      if (now - this.lastNotificationTime < this.notificationCooldown) {
+        return null;
+      }
+      
+      this.lastNotificationTime = now;
+      
       const timestamp = new Date();
       const notificationData = {
         id: Date.now().toString(),

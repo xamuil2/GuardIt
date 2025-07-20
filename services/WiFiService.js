@@ -9,15 +9,10 @@ class WiFiService {
     this.onDataReceived = null;
     this.lastData = null;
     this.connectionTimeout = 5000;
-    this.lastAlertTime = null;
     this.lastLEDState = false;
-    this.aggressiveAlerts = 0;
-    this.sustainedAlerts = 0;
     this.lastChangeValues = [];
     this.isLEDRed = false;
     this.lastSpikeTime = 0;
-    this.alertTriggeredThisCycle = false;
-    this.notificationSentThisCycle = false;
   }
 
   setArduinoIP = (ipAddress) => {
@@ -201,15 +196,12 @@ class WiFiService {
       return;
     }
     
-    this.alertTriggeredThisCycle = false;
-    
     const currentLEDState = data.alert?.active || false;
     
-    if (this.lastLEDState === true && currentLEDState === false) {
-      this.notificationSentThisCycle = false;
+    if (currentLEDState !== this.lastLEDState) {
     }
     
-    if (currentLEDState === true && this.lastLEDState === false && !this.notificationSentThisCycle) {
+    if (currentLEDState === true && this.lastLEDState === false) {
       this.triggerLEDAlert(normalizedData);
     }
     
@@ -247,13 +239,11 @@ class WiFiService {
       if (this.lastChangeValues.length >= 2) {
         const recentChanges = this.lastChangeValues.slice(-2);
         const averageChange = recentChanges.reduce((sum, val) => sum + val, 0) / recentChanges.length;
-        const isHighActivity = averageChange > 0.01;
         
-        if (isSignificantSpike && !this.isLEDRed && !this.alertTriggeredThisCycle && !this.notificationSentThisCycle) {
+        if (isSignificantSpike && !this.isLEDRed) {
           this.isLEDRed = true;
           this.lastSpikeTime = Date.now();
           this.triggerLEDAlert(normalizedData);
-          return;
         }
         
         if (this.isLEDRed && averageChange < 0.005) {
@@ -272,7 +262,7 @@ class WiFiService {
       }
     }
     
-    if (data.accelerometer && data.accelerometer.change && !this.isLEDRed && !this.alertTriggeredThisCycle && !this.notificationSentThisCycle) {
+    if (data.accelerometer && data.accelerometer.change && !this.isLEDRed) {
       const change = data.accelerometer.change;
       const backupThreshold = 0.01;
       const isSignificantMovement = change > backupThreshold;
@@ -297,19 +287,7 @@ class WiFiService {
 
   triggerLEDAlert = async (data) => {
     try {
-      if (this.alertTriggeredThisCycle) {
-        return;
-      }
-      
-      if (this.notificationSentThisCycle) {
-        return;
-      }
-      
-      this.alertTriggeredThisCycle = true;
-      this.notificationSentThisCycle = true;
-      
       const result = await NotificationService.triggerLEDAlert();
-      
       return result;
     } catch (error) {
     }

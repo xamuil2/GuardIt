@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Simple Camera Server for GuardIt
-This version bypasses complex authorization and works better on macOS
-"""
 
 from flask import Flask, Response, jsonify, render_template_string
 from flask_cors import CORS
@@ -27,19 +23,15 @@ class SimpleCameraServer:
         
     def open_camera(self):
         if self.cap is None:
-            # Try different camera indices
             for i in range(3):
                 self.cap = cv2.VideoCapture(i)
                 if self.cap.isOpened():
-                    print(f"✅ Camera opened successfully on index {i}")
                     self.camera_opened = True
                     return True
                 else:
                     self.cap.release()
                     self.cap = None
             
-            # If no camera found, create a test pattern
-            print("⚠️ No camera found, creating test pattern")
             self.camera_opened = True
             return True
         return self.camera_opened
@@ -52,7 +44,6 @@ class SimpleCameraServer:
             self.is_streaming = False
     
     def create_test_frame(self):
-        """Create a test frame when no camera is available"""
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         cv2.putText(frame, "GuardIt Camera", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
         cv2.putText(frame, "Test Pattern", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
@@ -102,7 +93,6 @@ class SimpleCameraServer:
             
             frame = cv2.flip(frame, 1)
             
-            # Simple motion detection
             motion = self.detect_motion(frame)
             if motion:
                 current_time = time.time()
@@ -115,7 +105,6 @@ class SimpleCameraServer:
             
             self.frame_count += 1
             
-            # Add status text to frame
             cv2.putText(frame, f"Motion: {'YES' if self.motion_detected else 'NO'}", 
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if not self.motion_detected else (0, 0, 255), 2)
             cv2.putText(frame, f"Detections: {self.detection_count}", 
@@ -339,14 +328,5 @@ def take_screenshot():
 
 if __name__ == '__main__':
     import numpy as np
-    
-    print("🚀 Starting Simple GuardIt Camera Server...")
-    print("📱 Your phone should connect to: http://172.20.10.8:8090")
-    print("🌐 Open in Safari: http://172.20.10.8:8090")
-    print("📋 Make sure your camera is connected and accessible")
-    print("\n🔧 Server controls:")
-    print("   - Press Ctrl+C to stop the server")
-    print("   - Open http://localhost:8090 in your browser to test")
-    print("\n" + "="*50)
     
     app.run(host='0.0.0.0', port=8090, debug=True, threaded=True) 

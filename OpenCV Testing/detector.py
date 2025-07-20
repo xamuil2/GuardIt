@@ -52,9 +52,8 @@ class MultiModelPersonDetector:
             hog = cv2.HOGDescriptor()
             hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
             self.model_objects['hog'] = hog
-            print("✓ HOG + SVM initialized")
         except Exception as e:
-            print(f"✗ HOG + SVM failed: {e}")
+            pass
 
         # 2. YOLOv8
         try:
@@ -64,9 +63,8 @@ class MultiModelPersonDetector:
             yolo_model = YOLO('yolov8n.pt')
             yolo_model.to(device)
             self.model_objects['yolo'] = yolo_model
-            print(f"✓ YOLOv8 initialized on device: {device}")
         except Exception as e:
-            print(f"✗ YOLOv8 failed: {e}")
+            pass
 
         # 3. MobileNet SSD
         try:
@@ -77,11 +75,10 @@ class MultiModelPersonDetector:
             if config_path.exists() and weights_path.exists():
                 net = cv2.dnn.readNetFromCaffe(str(config_path), str(weights_path))
                 self.model_objects['mobilenet'] = net
-                print("✓ MobileNet SSD initialized")
             else:
-                print("✗ MobileNet SSD files not found (download required)")
+                pass
         except Exception as e:
-            print(f"✗ MobileNet SSD failed: {e}")
+            pass
 
         # 4. Haar Cascade
         try:
@@ -89,19 +86,17 @@ class MultiModelPersonDetector:
             if os.path.exists(cascade_path):
                 cascade = cv2.CascadeClassifier(cascade_path)
                 self.model_objects['cascade'] = cascade
-                print("✓ Haar Cascade initialized")
             else:
-                print("✗ Haar Cascade file not found")
+                pass
         except Exception as e:
-            print(f"✗ Haar Cascade failed: {e}")
+            pass
 
         # 5. Background Subtraction
         try:
             bg_subtractor = cv2.createBackgroundSubtractorMOG2(detectShadows=True)
             self.model_objects['background_subtraction'] = bg_subtractor
-            print("✓ Background Subtraction initialized")
         except Exception as e:
-            print(f"✗ Background Subtraction failed: {e}")
+            pass
 
     def detect_people(self, frame):
         # Detect people in the frame using the currently selected model
@@ -409,7 +404,6 @@ class MultiModelPersonDetector:
                 model_keys = list(self.models.keys())
                 current_index = model_keys.index(self.current_model)
                 self.current_model = model_keys[(current_index + 1) % len(model_keys)]
-                print(f"Switched to model: {self.models[self.current_model]}")
 
         cap.release()
         cv2.destroyAllWindows()

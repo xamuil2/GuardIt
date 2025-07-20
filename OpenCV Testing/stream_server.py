@@ -203,12 +203,4 @@ if __name__ == '__main__':
     local_ip = get_local_ip()
     port = 8090
 
-    print("Starting GuardIt Camera Server...")
-    print(f"Server will be available at:")
-    print(f"  Local access: http://localhost:{port}")
-    print(f"  Network access: http://{local_ip}:{port}")
-    print("Make sure your camera is connected and accessible")
-    print("Access /video_feed for the camera stream")
-    print("Press CTRL+C to stop the server")
-
     app.run(host='0.0.0.0', port=port, debug=True, threaded=True)
