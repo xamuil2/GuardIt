@@ -2,31 +2,38 @@ import * as Notifications from 'expo-notifications';
 
 class NotificationService {
   constructor() {
-    this.notifications = [];
     this.isInitialized = false;
-    this.useAsyncStorage = false;
     this.lastNotificationTime = 0;
-    this.notificationCooldown = 500;
-    this.loadNotifications();
+    this.notificationCooldown = 2000;
+    this.notifications = [];
   }
 
   async initialize() {
-    if (this.isInitialized) return;
+    if (this.isInitialized) {
+      return true;
+    }
 
     try {
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldShowBanner: true,
-          shouldShowList: true,
-          shouldPlaySound: true,
-          shouldSetBadge: true,
-        }),
-      });
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      
+      let finalStatus = existingStatus;
 
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== 'granted') {
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
         return false;
       }
+
+      await Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        }),
+      });
 
       this.isInitialized = true;
       return true;
@@ -36,44 +43,127 @@ class NotificationService {
   }
 
   async triggerLEDAlert() {
-    try {
-      const now = Date.now();
-      
-      if (now - this.lastNotificationTime < this.notificationCooldown) {
-        return null;
-      }
-      
-      this.lastNotificationTime = now;
-      
-      const timestamp = new Date();
-      const notificationData = {
-        id: Date.now().toString(),
-        type: 'led_alert',
-        title: '🚨 Device Movement Detected',
-        body: 'Your GuardIt device has been moved or disturbed. Please check immediately.',
-        timestamp: timestamp.toISOString(),
-        date: timestamp.toLocaleDateString(),
-        time: timestamp.toLocaleTimeString(),
-        read: false
-      };
+    const now = Date.now();
+    if (now - this.lastNotificationTime < this.notificationCooldown) {
+      return;
+    }
 
-      await Notifications.scheduleNotificationAsync({
+    const timestamp = new Date().toLocaleTimeString();
+    const success = await this.sendNotification(
+      'LED Alert',
+      `LED light has changed state at ${timestamp}`,
+      { data: { type: 'led_alert', timestamp: now } }
+    );
+
+    if (success) {
+      this.lastNotificationTime = now;
+      await this.addNotificationToHistory({
+        id: Date.now().toString(),
+        title: 'LED Alert',
+        body: `LED light has changed state at ${timestamp}`,
+        type: 'led_alert',
+        timestamp: now,
+        read: false
+      });
+    }
+  }
+
+  async triggerBuzzerAlert() {
+    const now = Date.now();
+    if (now - this.lastNotificationTime < this.notificationCooldown) {
+      return;
+    }
+
+    if (!this.isInitialized) {
+      const initialized = await this.initialize();
+      if (!initialized) {
+        return;
+      }
+    }
+
+    const timestamp = new Date().toLocaleTimeString();
+    const success = await this.sendNotification(
+      'Device Movement Detected',
+      `Device has been moved at ${timestamp}`,
+      { data: { type: 'motion_alert', timestamp: now } }
+    );
+
+    if (success) {
+      this.lastNotificationTime = now;
+      await this.addNotificationToHistory({
+        id: Date.now().toString(),
+        title: 'Device Movement Detected',
+        body: `Device has been moved at ${timestamp}`,
+        type: 'motion_alert',
+        timestamp: now,
+        read: false
+      });
+    }
+  }
+
+  async triggerSuspiciousActivityAlert() {
+    const now = Date.now();
+    if (now - this.lastNotificationTime < this.notificationCooldown) {
+      return;
+    }
+
+    if (!this.isInitialized) {
+      const initialized = await this.initialize();
+      if (!initialized) {
+        return;
+      }
+    }
+
+    const timestamp = new Date().toLocaleTimeString();
+    const success = await this.sendNotification(
+      'Suspicious Activity Detected',
+      `Suspicious activity detected at ${timestamp}`,
+      { data: { type: 'suspicious_activity', timestamp: now } }
+    );
+
+    if (success) {
+      this.lastNotificationTime = now;
+      await this.addNotificationToHistory({
+        id: Date.now().toString(),
+        title: 'Suspicious Activity Detected',
+        body: `Suspicious activity detected at ${timestamp}`,
+        type: 'suspicious_activity',
+        timestamp: now,
+        read: false
+      });
+    }
+  }
+
+  async sendNotification(title, body, options = {}) {
+    try {
+      const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
-          title: notificationData.title,
-          body: notificationData.body,
-          data: notificationData,
-          sound: 'default',
+          title,
+          body,
+          sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
+          vibrate: [0, 250, 250, 250],
+          ...options,
         },
         trigger: null,
       });
-
-      await this.addNotificationToHistory(notificationData);
-
-      return notificationData;
+      
+      return true;
     } catch (error) {
-      return null;
+      return false;
     }
+  }
+
+  setNotificationCooldown(cooldownMs) {
+    this.notificationCooldown = cooldownMs;
+  }
+
+  getUnreadCount() {
+    return this.notifications.filter(n => !n.read).length;
+  }
+
+  getNotifications() {
+    return this.notifications;
   }
 
   async addNotificationToHistory(notification) {
@@ -84,18 +174,6 @@ class NotificationService {
         this.notifications = this.notifications.slice(0, 100);
       }
     } catch (error) {}
-  }
-
-  async loadNotifications() {
-    this.notifications = [];
-  }
-
-  getNotifications() {
-    return this.notifications;
-  }
-
-  getUnreadCount() {
-    return this.notifications.filter(n => !n.read).length;
   }
 
   async markAsRead(notificationId) {
@@ -133,7 +211,14 @@ class NotificationService {
     if (diffInMinutes < 1) return 'Just now';
     if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
-    return date.toLocaleDateString();
+    
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   }
 
   getNotificationsByType(type) {
@@ -146,4 +231,5 @@ class NotificationService {
   }
 }
 
-export default new NotificationService(); 
+const notificationServiceInstance = new NotificationService();
+export default notificationServiceInstance;

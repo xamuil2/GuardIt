@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import subprocess
 import sys
 import os
@@ -46,4 +44,4 @@ def main():
     start_server()
 
 if __name__ == "__main__":
-    main() 
+    main()

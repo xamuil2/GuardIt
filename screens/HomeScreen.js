@@ -14,6 +14,7 @@ export default function HomeScreen() {
   const [expoPushToken, setExpoPushToken] = useState('');
   const [notification, setNotification] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationService] = useState(NotificationService);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -22,10 +23,10 @@ export default function HomeScreen() {
       setNotification(notification);
     });
     
-    NotificationService.initialize();
+    notificationService.initialize();
     
     const loadUnreadCount = () => {
-      setUnreadCount(NotificationService.getUnreadCount());
+      setUnreadCount(notificationService.getUnreadCount());
     };
     loadUnreadCount();
     
@@ -35,7 +36,7 @@ export default function HomeScreen() {
       subscription.remove();
       clearInterval(interval);
     };
-  }, []);
+  }, [notificationService]);
 
   const handleLogout = async () => {
     try {
@@ -44,50 +45,10 @@ export default function HomeScreen() {
     }
   };
 
-  const [cameraIP, setCameraIP] = useState('172.20.10.8:8090');
+  const [cameraIP, setCameraIP] = useState('10.103.186.99:8080');
 
-  const openCameraFeed = async () => {
-    try {
-      const url = `http://${cameraIP}`;
-      
-
-      Alert.alert(
-        'Opening Safari',
-        `Opening: ${url}\nThis will launch Safari outside the simulator.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Open', 
-            onPress: async () => {
-              try {
-                const canOpen = await Linking.canOpenURL(url);
-                if (canOpen) {
-                  await Linking.openURL(url);
-                } else {
-                  Alert.alert(
-                    'Error',
-                    `Cannot open URL: ${url}\nPlease check the IP address format.`,
-                    [{ text: 'OK' }]
-                  );
-                }
-              } catch (error) {
-                Alert.alert(
-                  'Error',
-                  `Failed to open camera feed: ${error.message}`,
-                  [{ text: 'OK' }]
-                );
-              }
-            }
-          }
-        ]
-      );
-    } catch (error) {
-      Alert.alert(
-        'Error',
-        `Failed to prepare camera feed: ${error.message}`,
-        [{ text: 'OK' }]
-      );
-    }
+  const openCameraStream = () => {
+    navigation.navigate('CameraStream', { cameraIP });
   };
 
   return (
@@ -184,13 +145,11 @@ export default function HomeScreen() {
                 />
               </View>
               
-              <TouchableOpacity style={styles.cardButton} onPress={openCameraFeed}>
-                <Text style={styles.cardButtonText}>OPEN IN SAFARI</Text>
+              <TouchableOpacity style={styles.cardButton} onPress={openCameraStream}>
+                <Text style={styles.cardButtonText}>VIEW STREAM</Text>
               </TouchableOpacity>
             </LinearGradient>
           </View>
-
-
 
           <View style={styles.statusCard}>
             <LinearGradient
@@ -223,10 +182,10 @@ export default function HomeScreen() {
               <View style={styles.cardIconContainer}>
                 <Ionicons name="speedometer" size={36} color="#ff4444"/>
               </View>
-              <Text style={styles.cardTitle}>Arduino Connection</Text>
-              <Text style={styles.cardSubtitle}>Arduino motion detection</Text>
+              <Text style={styles.cardTitle}>Raspberry Pi Connection</Text>
+              <Text style={styles.cardSubtitle}>Raspberry Pi motion detection</Text>
               <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('IMU')}>
-                <Text style={styles.cardButtonText}>CONNECT ARDUINO</Text>
+                <Text style={styles.cardButtonText}>CONNECT RASPBERRY PI</Text>
               </TouchableOpacity>
             </LinearGradient>
           </View>

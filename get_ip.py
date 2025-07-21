@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import socket
 
 def get_local_ip():
@@ -13,4 +11,4 @@ def get_local_ip():
         return "127.0.0.1"
 
 if __name__ == "__main__":
-    ip = get_local_ip() 
+    ip = get_local_ip()

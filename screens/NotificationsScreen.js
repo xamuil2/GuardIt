@@ -4,28 +4,30 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import NotificationService from '../services/NotificationService';
+
 const { width, height } = Dimensions.get('window');
 
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationService] = useState(NotificationService);
   const navigation = useNavigation();
 
   useFocusEffect(
     React.useCallback(() => {
       loadNotifications();
-    }, [])
+    }, [notificationService])
   );
 
   const loadNotifications = () => {
-    const allNotifications = NotificationService.getNotifications();
-    const unread = NotificationService.getUnreadCount();
+    const allNotifications = notificationService.getNotifications();
+    const unread = notificationService.getUnreadCount();
     setNotifications(allNotifications);
     setUnreadCount(unread);
   };
 
   const markAsRead = async (notificationId) => {
-    await NotificationService.markAsRead(notificationId);
+    await notificationService.markAsRead(notificationId);
     loadNotifications();
   };
 
@@ -38,7 +40,7 @@ export default function NotificationsScreen() {
         {
           text: 'Mark All Read',
           onPress: async () => {
-            await NotificationService.markAllAsRead();
+            await notificationService.markAllAsRead();
             loadNotifications();
           }
         }
@@ -56,7 +58,7 @@ export default function NotificationsScreen() {
           text: 'Clear All',
           style: 'destructive',
           onPress: async () => {
-            await NotificationService.clearAllNotifications();
+            await notificationService.clearAllNotifications();
             loadNotifications();
           }
         }
@@ -74,7 +76,7 @@ export default function NotificationsScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await NotificationService.deleteNotification(notificationId);
+            await notificationService.deleteNotification(notificationId);
             loadNotifications();
           }
         }
@@ -97,7 +99,11 @@ export default function NotificationsScreen() {
         <View style={styles.notificationHeader}>
           <View style={styles.notificationIcon}>
             <Ionicons 
-              name={item.type === 'led_alert' ? 'warning' : 'notifications'} 
+              name={
+                item.type === 'led_alert' ? 'warning' : 
+                item.type === 'suspicious_activity' ? 'eye' : 
+                'notifications'
+              } 
               size={24} 
               color={item.read ? '#888' : '#ff4444'}
             />
@@ -112,7 +118,7 @@ export default function NotificationsScreen() {
             </Text>
             <View style={styles.notificationMeta}>
               <Text style={[styles.notificationTime, item.read && styles.readText]}>
-                {NotificationService.formatTimestamp(item.timestamp)}
+                {notificationService.formatTimestamp(item.timestamp)}
               </Text>
               <Text style={[styles.notificationDate, item.read && styles.readText]}>
                 {item.date} at {item.time}
@@ -369,4 +375,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
   },
-}); 
+});

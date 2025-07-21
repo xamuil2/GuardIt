@@ -12,7 +12,7 @@ export default function IMUScreen() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [arduinoIP, setArduinoIP] = useState('192.168.1.100:8080'); // Default to Pi
+  const [arduinoIP, setArduinoIP] = useState('10.103.186.99:8080');
   const [connectionRetries, setConnectionRetries] = useState(0);
   const [lastError, setLastError] = useState(null);
   const [connectedPort, setConnectedPort] = useState(null);
@@ -21,7 +21,23 @@ export default function IMUScreen() {
   const navigation = useNavigation();
 
   useEffect(() => {
-    setIsConnected(WiFiService.getConnectionStatus());
+    const checkConnection = async () => {
+      try {
+        const connected = await WiFiService.testConnection();
+        setIsConnected(connected);
+        setConnectionStatus(connected ? 'Connected' : 'Disconnected');
+      } catch (error) {
+        setIsConnected(false);
+        setConnectionStatus('Connection failed');
+      }
+    };
+    
+    checkConnection();
+
+    const initializeServices = async () => {
+      await NotificationService.initialize();
+    };
+    initializeServices();
 
     const updateNotificationCount = () => {
       setNotificationCount(NotificationService.getUnreadCount());
@@ -36,65 +52,33 @@ export default function IMUScreen() {
     };
   }, []);
 
-  const connectToArduino = async () => {
+  const connectToRaspberryPi = async () => {
     setIsConnecting(true);
     setConnectionStatus('Connecting...');
     setLastError(null);
     
+    try {
     WiFiService.setArduinoIP(arduinoIP);
-    
-    let success = false;
-    let retries = 0;
-    const maxRetries = 3;
-    
-    while (!success && retries < maxRetries) {
-      if (retries > 0) {
-        setConnectionStatus(`Retrying... (${retries}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      const connected = await WiFiService.testConnection();
       
-      success = await WiFiService.testConnection();
-      retries++;
-      
-      if (!success && retries < maxRetries) {
-        setConnectionRetries(retries);
-      }
-    }
-    
-    if (success) {
+      if (connected) {
       setIsConnected(true);
-      setConnectionStatus('Connected');
+        setConnectionStatus('Connected to Raspberry Pi');
       setConnectionRetries(0);
-      setDeviceType(WiFiService.getDeviceType());
-      
-      const baseURL = WiFiService.getBaseURL();
-      const portMatch = baseURL.match(/:(\d+)/);
-      if (portMatch) {
-        setConnectedPort(portMatch[1]);
-      }
       
       WiFiService.startPolling(500);
     } else {
+        setConnectionStatus('Connection failed');
+        setConnectionRetries(prev => prev + 1);
+        setLastError('Failed to connect to Raspberry Pi. Check IP address and network connection.');
+      }
+    } catch (error) {
       setConnectionStatus('Connection failed');
-      setLastError('Failed to connect after multiple attempts');
-      
-      Alert.alert(
-        'Connection Error', 
-        `Failed to connect to device at ${arduinoIP}.\n\nPlease check:\n\n1. Device is powered on and connected to WiFi\n2. WiFi credentials are correct\n3. IP address is correct\n4. Both devices are on same WiFi network\n5. For Raspberry Pi: Server is running (python3 imu_wifi_server.py)\n6. For Arduino: No firewall blocking ports\n\nTried ${maxRetries} times.`,
-        [
-          { text: 'OK' },
-          { 
-            text: 'Try Again', 
-            onPress: () => {
-              setConnectionRetries(0);
-              connectToArduino();
-            }
-          }
-        ]
-      );
-    }
-    
+      setConnectionRetries(prev => prev + 1);
+      setLastError(`Connection error: ${error.message}`);
+    } finally {
     setIsConnecting(false);
+    }
   };
 
   const disconnect = () => {
@@ -109,48 +93,49 @@ export default function IMUScreen() {
   const runNetworkDiagnostics = async () => {
     Alert.alert(
       'Network Diagnostics',
-      'This will scan for Arduino devices and test connectivity.',
+      'This will scan for Raspberry Pi devices and test connectivity.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
         { 
-          text: 'Scan for Arduino', 
+          text: 'Scan for Raspberry Pi',
           onPress: async () => {
-            setConnectionStatus('Scanning for Arduino...');
+            setConnectionStatus('Scanning for Raspberry Pi...');
             
             try {
               const foundDevices = await scanForArduino();
               
               if (foundDevices.length > 0) {
-                let deviceList = 'Found Arduino devices:\n\n';
-                foundDevices.forEach((device, index) => {
-                  deviceList += `${index + 1}. ${device.ip} - ${device.name}\n`;
+                let deviceList = 'Found Raspberry Pi devices:\n\n';
+                foundDevices.forEach(device => {
+                  deviceList += `• ${device.name}\n   IP: ${device.ip}\n   Version: ${device.version}\n\n`;
                 });
                 
                 Alert.alert(
-                  'Arduino Found!', 
-                  deviceList + '\nTap "Connect" to use the first device.',
+                  'Raspberry Pi Found!',
+                  deviceList + 'Would you like to connect to the first device?',
                   [
-                    { text: 'Cancel' },
+                    { text: 'Cancel', style: 'cancel' },
                     { 
                       text: 'Connect', 
                       onPress: () => {
                         setArduinoIP(foundDevices[0].ip);
-                        connectToArduino();
+                        connectToRaspberryPi();
                       }
                     }
                   ]
                 );
               } else {
                 Alert.alert(
-                  'No Arduino Found', 
-                  'No Arduino devices found on the network.\n\nPlease check:\n• Arduino is powered on\n• Both devices are on same WiFi\n• Arduino code is uploaded and running\n\nTry scanning again or enter IP manually.'
+                  'No Raspberry Pi Found',
+                  'No Raspberry Pi devices found on the network.\n\nPlease check:\n• Raspberry Pi is powered on\n• Both devices are on same WiFi\n• Raspberry Pi server is running\n\nTry scanning again or enter IP manually.'
                 );
               }
             } catch (error) {
-              Alert.alert('Scan Error', 'Failed to scan for Arduino devices');
+              Alert.alert('Scan Error', 'Failed to scan for Raspberry Pi devices');
             }
-            
-            setConnectionStatus('Disconnected');
           }
         }
       ]
@@ -169,13 +154,13 @@ export default function IMUScreen() {
     
     for (const baseIP of ipRanges) {
       for (let i = 1; i <= 254; i++) {
-        const testIP = `${baseIP}.${i}`;
+        const testIP = `${baseIP}.${i}:8080`;
         
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 1000);
           
-          const response = await fetch(`http://${testIP}/status`, {
+          const response = await fetch(`http://${testIP}/`, {
             method: 'GET',
             signal: controller.signal,
             headers: {
@@ -188,11 +173,11 @@ export default function IMUScreen() {
           if (response.ok) {
             const data = await response.json();
             
-            if (data.name && data.name.includes('GuardIt')) {
+            if (data.title && data.title.includes('Raspberry Pi')) {
               foundDevices.push({
                 ip: testIP,
-                name: data.name,
-                version: data.version
+                name: 'Raspberry Pi IoT Device',
+                version: '1.0.0'
               });
               break;
             }
@@ -218,7 +203,7 @@ export default function IMUScreen() {
         >
           <Ionicons name="arrow-back" size={24} color="white"/>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Arduino Connection</Text>
+        <Text style={styles.headerTitle}>Raspberry Pi Connection</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -278,12 +263,12 @@ export default function IMUScreen() {
             )}
             
             <View style={styles.ipInputContainer}>
-              <Text style={styles.ipLabel}>Arduino IP Address:</Text>
+              <Text style={styles.ipLabel}>Raspberry Pi IP Address:</Text>
               <TextInput
                 style={styles.ipInput}
                 value={arduinoIP}
                 onChangeText={setArduinoIP}
-                placeholder="172.20.10.11"
+                placeholder="10.103.186.99:8080"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
                 keyboardType="numeric"
               />
@@ -293,7 +278,7 @@ export default function IMUScreen() {
               {!isConnected ? (
                 <TouchableOpacity 
                   style={[styles.connectButton, isConnecting && styles.connectingButton]} 
-                  onPress={connectToArduino}
+                  onPress={connectToRaspberryPi}
                   disabled={isConnecting}
                 >
                   <LinearGradient
@@ -301,8 +286,8 @@ export default function IMUScreen() {
                     style={styles.buttonGradient}
                   >
                     <Ionicons name="wifi" size={20} color="white"/>
-                    <Text style={styles.buttonText}>
-                      {isConnecting ? 'Connecting...' : 'Connect to Arduino'}
+                    <Text style={styles.connectButtonText}>
+                      {isConnecting ? 'Connecting...' : 'Connect to Raspberry Pi'}
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -317,6 +302,7 @@ export default function IMUScreen() {
                   </LinearGradient>
                 </TouchableOpacity>
               )}
+
             </View>
           </LinearGradient>
         </View>
@@ -359,6 +345,7 @@ const styles = StyleSheet.create({
   },
   statusSection: {
     marginBottom: 20,
+
   },
   statusContainer: {
     borderRadius: 20,
@@ -511,4 +498,15 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontWeight: 'bold',
   },
-}); 
+  connectButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 10,
+  },
+  testButton: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    width: '100%',
+  },
+});

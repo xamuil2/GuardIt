@@ -9,6 +9,7 @@ import HomeScreen from './screens/HomeScreen';
 import MapScreen from './screens/MapScreen';
 import IMUScreen from './screens/IMUScreen';
 import CameraScreen from './screens/CameraScreen';
+import CameraStreamScreen from './screens/CameraStreamScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 
 const Stack = createStackNavigator();
@@ -36,6 +37,7 @@ export default function App() {
             <Stack.Screen name="Map" component={MapScreen} />
             <Stack.Screen name="IMU" component={IMUScreen} />
             <Stack.Screen name="Camera" component={CameraScreen} />
+            <Stack.Screen name="CameraStream" component={CameraStreamScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
           </>
         ) : (

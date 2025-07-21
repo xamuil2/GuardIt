@@ -1,332 +1,220 @@
-#!/usr/bin/env python3
-
-from flask import Flask, Response, jsonify, render_template_string
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 import cv2
+import threading
 import time
 import os
+import sys
 
 app = Flask(__name__)
 CORS(app)
 
-class SimpleCameraServer:
-    def __init__(self):
-        self.cap = None
-        self.is_streaming = False
-        self.camera_opened = False
-        self.motion_detected = False
-        self.last_motion_time = 0
-        self.motion_cooldown = 5.0
-        self.detection_count = 0
-        self.frame_count = 0
-        self.start_time = time.time()
-        
-    def open_camera(self):
-        if self.cap is None:
-            for i in range(3):
-                self.cap = cv2.VideoCapture(i)
-                if self.cap.isOpened():
-                    self.camera_opened = True
-                    return True
-                else:
-                    self.cap.release()
-                    self.cap = None
-            
-            self.camera_opened = True
-            return True
-        return self.camera_opened
-    
-    def close_camera(self):
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
-            self.camera_opened = False
-            self.is_streaming = False
-    
-    def create_test_frame(self):
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(frame, "GuardIt Camera", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
-        cv2.putText(frame, "Test Pattern", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
-        cv2.putText(frame, f"Time: {time.strftime('%H:%M:%S')}", (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(frame, "Camera not available", (50, 400), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-        return frame
-    
-    def detect_motion(self, frame):
-        if frame is None:
-            return False
-            
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
-        
-        if not hasattr(self, 'previous_frame'):
-            self.previous_frame = gray
-            return False
-        
-        frame_delta = cv2.absdiff(self.previous_frame, gray)
-        thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-        
-        thresh = cv2.dilate(thresh, None, iterations=2)
-        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        motion_detected = False
-        for contour in contours:
-            if cv2.contourArea(contour) > 500:
-                motion_detected = True
-                break
-        
-        self.previous_frame = gray
-        return motion_detected
-    
-    def generate_frames(self):
-        if not self.open_camera():
-            return
-            
-        self.is_streaming = True
-        
-        while self.is_streaming and self.camera_opened:
-            if self.cap is not None and self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if not ret:
-                    frame = self.create_test_frame()
-            else:
-                frame = self.create_test_frame()
-            
-            frame = cv2.flip(frame, 1)
-            
-            motion = self.detect_motion(frame)
-            if motion:
-                current_time = time.time()
-                if current_time - self.last_motion_time > self.motion_cooldown:
-                    self.motion_detected = True
-                    self.last_motion_time = current_time
-                    self.detection_count += 1
-            else:
-                self.motion_detected = False
-            
-            self.frame_count += 1
-            
-            cv2.putText(frame, f"Motion: {'YES' if self.motion_detected else 'NO'}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if not self.motion_detected else (0, 0, 255), 2)
-            cv2.putText(frame, f"Detections: {self.detection_count}", 
-                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            frame = buffer.tobytes()
-            
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+camera = None
+is_streaming = False
+stream_thread = None
+camera_status = {
+    'csi_camera_available': False,
+    'usb_camera_available': False,
+    'is_streaming': False,
+    'current_camera': None,
+    'stream_quality': 80,
+    'stream_width': 640,
+    'stream_height': 480
+}
 
-camera_server = SimpleCameraServer()
+def check_camera_availability():
+    global camera_status
+    
+    csi_camera = cv2.VideoCapture(0)
+    if csi_camera.isOpened():
+        camera_status['csi_camera_available'] = True
+        csi_camera.release()
+    
+    usb_camera = cv2.VideoCapture(2)
+    if usb_camera.isOpened():
+        camera_status['usb_camera_available'] = True
+        usb_camera.release()
+
+def get_camera(camera_type='usb'):
+    if camera_type == 'csi':
+        return cv2.VideoCapture(0)
+    else:
+        return cv2.VideoCapture(2)
+
+def generate_frames(camera_type='usb', quality=80, width=640, height=480):
+    global camera, is_streaming
+    
+    camera = get_camera(camera_type)
+    if not camera.isOpened():
+        return
+    
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    
+    is_streaming = True
+    camera_status['is_streaming'] = True
+    camera_status['current_camera'] = camera_type
+    camera_status['stream_quality'] = quality
+    camera_status['stream_width'] = width
+    camera_status['stream_height'] = height
+    
+    try:
+        while is_streaming:
+            ret, frame = camera.read()
+            if not ret:
+                break
+            
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+            ret, buffer = cv2.imencode('.jpg', frame, encode_param)
+            
+            if ret:
+                frame_data = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+            
+            time.sleep(0.033)
+    finally:
+        if camera:
+            camera.release()
+        is_streaming = False
+        camera_status['is_streaming'] = False
 
 @app.route('/')
 def index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>GuardIt Camera Feed</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                margin: 0; 
-                padding: 0; 
-                background: #000; 
-                font-family: Arial, sans-serif;
-                color: white;
-                display: flex;
-                flex-direction: column;
-                height: 100vh;
-            }
-            .header {
-                background: rgba(255, 68, 68, 0.2);
-                padding: 15px;
-                text-align: center;
-                border-bottom: 2px solid #ff4444;
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 24px;
-                color: #ff4444;
-            }
-            .status {
-                background: rgba(255, 255, 255, 0.1);
-                padding: 10px;
-                text-align: center;
-                font-size: 14px;
-            }
-            .camera-container {
-                flex: 1;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: relative;
-            }
-            .camera-feed {
-                max-width: 100%;
-                max-height: 100%;
-                object-fit: contain;
-                border: 2px solid #ff4444;
-                border-radius: 10px;
-            }
-            .controls {
-                background: rgba(255, 255, 255, 0.1);
-                padding: 15px;
-                text-align: center;
-            }
-            .btn {
-                background: #ff4444;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                margin: 5px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 16px;
-            }
-            .btn:hover {
-                background: #ff6666;
-            }
-            .motion-alert {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                background: rgba(255, 0, 0, 0.8);
-                color: white;
-                padding: 10px 20px;
-                border-radius: 5px;
-                display: none;
-                animation: pulse 1s infinite;
-            }
-            @keyframes pulse {
-                0% { opacity: 1; }
-                50% { opacity: 0.5; }
-                100% { opacity: 1; }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>🔒 GuardIt Security Camera</h1>
-        </div>
-        
-        <div class="status" id="status">
-            Connecting to camera...
-        </div>
-        
-        <div class="camera-container">
-            <img src="/video_feed" alt="Camera Feed" class="camera-feed" id="camera-feed" />
-            <div class="motion-alert" id="motion-alert">
-                🚨 MOTION DETECTED!
-            </div>
-        </div>
-        
-        <div class="controls">
-            <button class="btn" onclick="refreshCamera()">🔄 Refresh</button>
-            <button class="btn" onclick="takeScreenshot()">📸 Screenshot</button>
-            <button class="btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
-        </div>
-        
-        <script>
-            function updateStatus() {
-                fetch('/status')
-                    .then(response => response.json())
-                    .then(data => {
-                        const statusEl = document.getElementById('status');
-                        const motionAlert = document.getElementById('motion-alert');
-                        
-                        statusEl.innerHTML = `
-                            Camera: ${data.camera_opened ? '✅ Connected' : '❌ Disconnected'} | 
-                            Streaming: ${data.is_streaming ? '✅ Active' : '❌ Inactive'} | 
-                            Motion: ${data.motion_detected ? '🚨 Detected' : '✅ None'} | 
-                            Detections: ${data.detection_count}
-                        `;
-                        
-                        if (data.motion_detected) {
-                            motionAlert.style.display = 'block';
-                        } else {
-                            motionAlert.style.display = 'none';
-                        }
-                    })
-                    .catch(error => {
-                        document.getElementById('status').innerHTML = '❌ Connection Error';
-                    });
-            }
-            
-            function refreshCamera() {
-                const img = document.getElementById('camera-feed');
-                img.src = '/video_feed?' + new Date().getTime();
-            }
-            
-            function takeScreenshot() {
-                fetch('/screenshot')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Screenshot saved: ' + data.filename);
-                        } else {
-                            alert('Failed to take screenshot');
-                        }
-                    });
-            }
-            
-            function toggleFullscreen() {
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen();
-                } else {
-                    document.exitFullscreen();
-                }
-            }
-            
-            // Update status every 2 seconds
-            setInterval(updateStatus, 2000);
-            updateStatus();
-            
-            // Refresh camera feed if it fails to load
-            document.getElementById('camera-feed').onerror = function() {
-                setTimeout(refreshCamera, 1000);
-            };
-        </script>
-    </body>
-    </html>
-    ''')
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(camera_server.generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/status')
-def status():
     return jsonify({
-        'camera_opened': camera_server.camera_opened,
-        'is_streaming': camera_server.is_streaming,
-        'motion_detected': camera_server.motion_detected,
-        'detection_count': camera_server.detection_count,
-        'frame_count': camera_server.frame_count,
-        'uptime': time.time() - camera_server.start_time
+        'title': 'Simple Camera Server',
+        'version': '1.0.0',
+        'endpoints': {
+            'camera': '/camera/<type>',
+            'stream': '/stream/<type>',
+            'status': '/status',
+            'start': '/stream/start',
+            'stop': '/stream/stop'
+        }
     })
 
-@app.route('/screenshot')
-def take_screenshot():
-    if camera_server.cap is not None and camera_server.camera_opened:
-        ret, frame = camera_server.cap.read()
-        if ret:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"screenshot_{timestamp}.jpg"
-            
-            try:
-                cv2.imwrite(filename, frame)
-                return jsonify({
-                    'success': True,
-                    'filename': filename,
-                    'timestamp': timestamp
-                })
-            except Exception as e:
-                return jsonify({'success': False, 'error': str(e)})
+@app.route('/camera/<camera_type>')
+def get_camera_frame(camera_type):
+    global camera
     
-    return jsonify({'success': False, 'error': 'Camera not available'})
+    if camera_type not in ['csi', 'usb']:
+        return jsonify({'error': 'Invalid camera type'}), 400
+    
+    if not camera_status[f'{camera_type}_camera_available']:
+        return jsonify({'error': f'{camera_type.upper()} camera not available'}), 503
+    
+    try:
+        temp_camera = get_camera(camera_type)
+        if not temp_camera.isOpened():
+            return jsonify({'error': f'Failed to open {camera_type} camera'}), 503
+        
+        ret, frame = temp_camera.read()
+        temp_camera.release()
+        
+        if not ret:
+            return jsonify({'error': 'Failed to capture frame'}), 503
+        
+        quality = int(request.args.get('quality', 80))
+        width = int(request.args.get('width', 640))
+        height = int(request.args.get('height', 480))
+        
+        frame = cv2.resize(frame, (width, height))
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+        ret, buffer = cv2.imencode('.jpg', frame, encode_param)
+        
+        if ret:
+            response = Response(buffer.tobytes(), mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+        else:
+            return jsonify({'error': 'Failed to encode frame'}), 503
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/stream/<camera_type>')
+def stream_camera(camera_type):
+    if camera_type not in ['csi', 'usb']:
+        return jsonify({'error': 'Invalid camera type'}), 400
+    
+    if not camera_status[f'{camera_type}_camera_available']:
+        return jsonify({'error': f'{camera_type.upper()} camera not available'}), 503
+    
+    quality = int(request.args.get('quality', 80))
+    width = int(request.args.get('width', 640))
+    height = int(request.args.get('height', 480))
+    
+    return Response(
+        generate_frames(camera_type, quality, width, height),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+@app.route('/stream/raw')
+def stream_raw():
+    global camera
+    
+    if not camera_status['usb_camera_available'] and not camera_status['csi_camera_available']:
+        return jsonify({'error': 'No camera available'}), 503
+    
+    camera_type = camera_status.get('current_camera', 'usb')
+    quality = camera_status.get('stream_quality', 80)
+    width = camera_status.get('stream_width', 640)
+    height = camera_status.get('stream_height', 480)
+    
+    return Response(
+        generate_frames(camera_type, quality, width, height),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+@app.route('/stream/start', methods=['POST'])
+def start_stream():
+    global stream_thread
+    
+    if is_streaming:
+        return jsonify({'message': 'Stream already running'})
+    
+    data = request.get_json() or {}
+    camera_type = data.get('camera', 'usb')
+    quality = data.get('quality', 80)
+    width = data.get('width', 640)
+    height = data.get('height', 480)
+    
+    if camera_type not in ['csi', 'usb']:
+        return jsonify({'error': 'Invalid camera type'}), 400
+    
+    if not camera_status[f'{camera_type}_camera_available']:
+        return jsonify({'error': f'{camera_type.upper()} camera not available'}), 503
+    
+    stream_thread = threading.Thread(
+        target=generate_frames,
+        args=(camera_type, quality, width, height)
+    )
+    stream_thread.daemon = True
+    stream_thread.start()
+    
+    return jsonify({'message': 'Stream started successfully'})
+
+@app.route('/stream/stop', methods=['POST'])
+def stop_stream():
+    global is_streaming, camera
+    
+    is_streaming = False
+    if camera:
+        camera.release()
+        camera = None
+    
+    return jsonify({'message': 'Stream stopped successfully'})
+
+@app.route('/status')
+def get_status():
+    return jsonify(camera_status)
 
 if __name__ == '__main__':
-    import numpy as np
+    check_camera_availability()
     
-    app.run(host='0.0.0.0', port=8090, debug=True, threaded=True) 
+    port = int(os.environ.get('PORT', 8090))
+    host = os.environ.get('HOST', '0.0.0.0')
+
+    app.run(host=host, port=port, debug=True, threaded=True)

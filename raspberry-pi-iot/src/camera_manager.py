@@ -1,8 +1,3 @@
-"""
-Camera Manager Module
-Handles dual camera streaming (CSI and USB webcam)
-"""
-
 import cv2
 import asyncio
 import logging
@@ -14,10 +9,9 @@ from config import CameraConfig
 logger = logging.getLogger(__name__)
 
 class CameraManager:
-    """Manages dual camera streaming for IoT device"""
-    
+
     def __init__(self):
-        """Initialize camera manager"""
+        
         self.csi_camera = None
         self.usb_camera = None
         self.is_streaming = {'csi': False, 'usb': False}
@@ -26,10 +20,9 @@ class CameraManager:
         self.stop_events = {'csi': threading.Event(), 'usb': threading.Event()}
         
     async def initialize(self) -> bool:
-        """Initialize both cameras"""
+        
         success = True
         
-        # Initialize CSI camera
         try:
             self.csi_camera = cv2.VideoCapture(CameraConfig.CSI_CAMERA_INDEX)
             if self.csi_camera.isOpened():
@@ -46,7 +39,6 @@ class CameraManager:
             self.csi_camera = None
             success = False
         
-        # Initialize USB camera
         try:
             self.usb_camera = cv2.VideoCapture(CameraConfig.USB_CAMERA_INDEX)
             if self.usb_camera.isOpened():
@@ -64,7 +56,7 @@ class CameraManager:
         return success or self.usb_camera is not None
     
     def _capture_frames(self, camera_type: str):
-        """Capture frames in a separate thread"""
+        
         camera = self.csi_camera if camera_type == 'csi' else self.usb_camera
         if not camera:
             return
@@ -80,7 +72,6 @@ class CameraManager:
                     logger.warning(f"Failed to read frame from {camera_type} camera")
                     break
                     
-                # Control frame rate
                 time.sleep(1.0 / CameraConfig.FPS)
                 
             except Exception as e:
@@ -90,7 +81,7 @@ class CameraManager:
         logger.info(f"{camera_type} camera capture thread stopped")
     
     def start_streaming(self, camera_type: str) -> bool:
-        """Start streaming for specified camera"""
+        
         if camera_type not in ['csi', 'usb']:
             raise ValueError("camera_type must be 'csi' or 'usb'")
         
@@ -103,10 +94,8 @@ class CameraManager:
             logger.warning(f"{camera_type} camera already streaming")
             return True
         
-        # Reset stop event
         self.stop_events[camera_type].clear()
         
-        # Start capture thread
         self.capture_threads[camera_type] = threading.Thread(
             target=self._capture_frames, 
             args=(camera_type,),
@@ -119,17 +108,15 @@ class CameraManager:
         return True
     
     def stop_streaming(self, camera_type: str):
-        """Stop streaming for specified camera"""
+        
         if camera_type not in ['csi', 'usb']:
             raise ValueError("camera_type must be 'csi' or 'usb'")
         
         if not self.is_streaming[camera_type]:
             return
         
-        # Signal thread to stop
         self.stop_events[camera_type].set()
         
-        # Wait for thread to finish
         if self.capture_threads[camera_type]:
             self.capture_threads[camera_type].join(timeout=2.0)
         
@@ -138,7 +125,7 @@ class CameraManager:
         logger.info(f"Stopped streaming {camera_type} camera")
     
     def get_frame(self, camera_type: str) -> Optional[bytes]:
-        """Get current frame as JPEG bytes"""
+        
         if camera_type not in ['csi', 'usb']:
             raise ValueError("camera_type must be 'csi' or 'usb'")
         
@@ -150,7 +137,6 @@ class CameraManager:
             return None
         
         try:
-            # Encode frame as JPEG
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, CameraConfig.QUALITY]
             ret, buffer = cv2.imencode('.jpg', frame, encode_params)
             
@@ -165,7 +151,7 @@ class CameraManager:
             return None
     
     def generate_mjpeg_stream(self, camera_type: str) -> Iterator[bytes]:
-        """Generate MJPEG stream for HTTP streaming"""
+        
         if camera_type not in ['csi', 'usb']:
             raise ValueError("camera_type must be 'csi' or 'usb'")
         
@@ -175,11 +161,10 @@ class CameraManager:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             else:
-                # If no frame available, wait a bit
                 time.sleep(0.1)
     
     def get_camera_info(self, camera_type: str) -> dict:
-        """Get camera information"""
+        
         if camera_type not in ['csi', 'usb']:
             raise ValueError("camera_type must be 'csi' or 'usb'")
         
@@ -202,21 +187,19 @@ class CameraManager:
         }
     
     def get_all_camera_info(self) -> dict:
-        """Get information about all cameras"""
+        
         return {
             "csi": self.get_camera_info("csi"),
             "usb": self.get_camera_info("usb")
         }
     
     def cleanup(self):
-        """Clean up camera resources"""
+        
         logger.info("Cleaning up camera resources")
         
-        # Stop streaming for both cameras
         self.stop_streaming('csi')
         self.stop_streaming('usb')
         
-        # Release camera resources
         if self.csi_camera:
             self.csi_camera.release()
             self.csi_camera = None

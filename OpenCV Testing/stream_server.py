@@ -80,20 +80,7 @@ def gen_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-HTML_PAGE = '''
-<html>
-  <head>
-    <title>Camera Feed</title>
-    <style>
-      body { margin: 0; background: #000; }
-      img { width: 100vw; height: 100vh; object-fit: contain; display: block; margin: 0 auto; }
-    </style>
-  </head>
-  <body>
-    <img src="/video_feed" alt="Camera Feed" />
-  </body>
-</html>
-'''
+HTML_PAGE = 
 
 @app.route('/')
 def index():
@@ -188,9 +175,8 @@ def video_stream():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def get_local_ip():
-    """Get the local IP address of this machine"""
+    
     try:
-        # Connect to a remote address to determine local IP
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]

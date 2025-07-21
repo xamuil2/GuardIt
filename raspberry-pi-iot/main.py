@@ -1,8 +1,3 @@
-"""
-Main FastAPI Application
-IoT device server for Raspberry Pi with MPU-9250, cameras, LED, and buzzer
-"""
-
 import asyncio
 import logging
 import json
@@ -20,20 +15,17 @@ from src.hardware_controller import HardwareController, Colors, Notes
 from src.camera_manager import CameraManager
 from config import ServerConfig, SensorConfig
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Global device instances
 imu_sensor = None
 hardware_controller = None
 camera_manager = None
 websocket_clients = set()
 
-# Pydantic models for API requests
 class LEDRequest(BaseModel):
     red: int = 0
     green: int = 0
@@ -48,39 +40,31 @@ class BuzzerRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
-    # Startup
     logger.info("Starting IoT device server...")
     
     global imu_sensor, hardware_controller, camera_manager
     
-    # Initialize IMU sensor
     imu_sensor = MPU9250()
     if not await imu_sensor.initialize():
         logger.warning("Failed to initialize MPU-9250 sensor")
     
-    # Initialize hardware controller
     hardware_controller = HardwareController()
     if not await hardware_controller.initialize():
         logger.warning("Failed to initialize hardware controller")
     
-    # Initialize camera manager
     camera_manager = CameraManager()
     if not await camera_manager.initialize():
         logger.warning("Failed to initialize camera manager")
     
-    # Start camera streaming
     camera_manager.start_streaming('csi')
     camera_manager.start_streaming('usb')
     
-    # Start sensor data broadcasting task
     asyncio.create_task(broadcast_sensor_data())
     
     logger.info("IoT device server startup complete")
     
     yield
     
-    # Shutdown
     logger.info("Shutting down IoT device server...")
     
     if imu_sensor:
@@ -92,7 +76,6 @@ async def lifespan(app: FastAPI):
     if camera_manager:
         camera_manager.cleanup()
 
-# Create FastAPI app
 app = FastAPI(
     title="Raspberry Pi IoT Device",
     description="IoT device with IMU sensor, cameras, LED, and buzzer control",
@@ -100,18 +83,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware for iOS app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# WebSocket connection manager
 async def broadcast_sensor_data():
-    """Broadcast sensor data to all WebSocket clients"""
+    
     while True:
         try:
             if imu_sensor and imu_sensor.is_initialized and websocket_clients:
@@ -122,7 +103,6 @@ async def broadcast_sensor_data():
                         "data": sensor_data
                     })
                     
-                    # Send to all connected clients
                     disconnected_clients = set()
                     for client in websocket_clients:
                         try:
@@ -130,10 +110,8 @@ async def broadcast_sensor_data():
                         except Exception:
                             disconnected_clients.add(client)
                     
-                    # Remove disconnected clients
                     websocket_clients -= disconnected_clients
             
-            # Wait before next broadcast (50Hz = 20ms)
             await asyncio.sleep(1.0 / SensorConfig.IMU_SAMPLE_RATE)
             
         except Exception as e:
@@ -142,7 +120,6 @@ async def broadcast_sensor_data():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint with device status"""
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -200,7 +177,6 @@ async def root():
 
 @app.get("/imu")
 async def get_imu_data():
-    """Get current IMU sensor readings"""
     if not imu_sensor or not imu_sensor.is_initialized:
         raise HTTPException(status_code=503, detail="IMU sensor not available")
     
@@ -216,7 +192,7 @@ async def get_imu_data():
 
 @app.post("/led")
 async def control_led(request: LEDRequest):
-    """Control RGB LED"""
+    
     if not hardware_controller or not hardware_controller.is_initialized:
         raise HTTPException(status_code=503, detail="Hardware controller not available")
     
@@ -238,7 +214,7 @@ async def control_led(request: LEDRequest):
 
 @app.post("/led/off")
 async def turn_off_led():
-    """Turn off RGB LED"""
+    
     if not hardware_controller or not hardware_controller.is_initialized:
         raise HTTPException(status_code=503, detail="Hardware controller not available")
     
@@ -252,9 +228,25 @@ async def turn_off_led():
         logger.error(f"Error turning off LED: {e}")
         raise HTTPException(status_code=500, detail="Failed to turn off LED")
 
+@app.get("/led/status")
+async def get_led_status():
+    
+    if not hardware_controller or not hardware_controller.is_initialized:
+        raise HTTPException(status_code=503, detail="Hardware controller not available")
+    
+    try:
+        led_status = await hardware_controller.get_led_status()
+        return {
+            "status": "success",
+            "led": led_status
+        }
+    except Exception as e:
+        logger.error(f"Error getting LED status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get LED status")
+
 @app.post("/buzzer")
 async def control_buzzer(request: BuzzerRequest):
-    """Control passive buzzer"""
+    
     if not hardware_controller or not hardware_controller.is_initialized:
         raise HTTPException(status_code=503, detail="Hardware controller not available")
     
@@ -278,9 +270,25 @@ async def control_buzzer(request: BuzzerRequest):
         logger.error(f"Error controlling buzzer: {e}")
         raise HTTPException(status_code=500, detail="Failed to control buzzer")
 
+@app.get("/buzzer/status")
+async def get_buzzer_status():
+    
+    if not hardware_controller or not hardware_controller.is_initialized:
+        raise HTTPException(status_code=503, detail="Hardware controller not available")
+    
+    try:
+        buzzer_status = await hardware_controller.get_buzzer_status()
+        return {
+            "status": "success",
+            "buzzer": buzzer_status
+        }
+    except Exception as e:
+        logger.error(f"Error getting buzzer status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get buzzer status")
+
 @app.get("/camera/info")
 async def get_camera_info():
-    """Get camera information"""
+    
     if not camera_manager:
         raise HTTPException(status_code=503, detail="Camera manager not available")
     
@@ -291,7 +299,7 @@ async def get_camera_info():
 
 @app.get("/camera/{camera_type}/stream")
 async def stream_camera(camera_type: str):
-    """Stream camera feed as MJPEG"""
+    
     if camera_type not in ['csi', 'usb']:
         raise HTTPException(status_code=400, detail="Invalid camera type")
     
@@ -308,13 +316,12 @@ async def stream_camera(camera_type: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time data"""
+    
     await websocket.accept()
     websocket_clients.add(websocket)
     logger.info(f"WebSocket client connected. Total clients: {len(websocket_clients)}")
     
     try:
-        # Send initial status
         status_message = {
             "type": "status",
             "data": {
@@ -325,14 +332,11 @@ async def websocket_endpoint(websocket: WebSocket):
         }
         await websocket.send_text(json.dumps(status_message))
         
-        # Keep connection alive
         while True:
             try:
-                # Wait for client messages (for commands)
                 message = await websocket.receive_text()
                 data = json.loads(message)
                 
-                # Handle client commands
                 if data.get("type") == "led_control":
                     led_data = data.get("data", {})
                     if hardware_controller and hardware_controller.is_initialized:

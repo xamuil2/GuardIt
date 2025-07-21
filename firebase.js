@@ -28,4 +28,4 @@ try {
   });
 }
 
-export { app, auth }; 
+export { app, auth };

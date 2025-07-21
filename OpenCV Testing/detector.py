@@ -7,7 +7,6 @@ from datetime import datetime
 import os
 from pathlib import Path
 
-# Initialize pygame for sound alerts
 pygame.mixer.init()
 
 class MultiModelPersonDetector:
@@ -46,8 +45,6 @@ class MultiModelPersonDetector:
         self.close_tracks = {}
 
     def _initialize_models(self):
-        # Load the models for each detection method
-        # 1. HOG + SVM
         try:
             hog = cv2.HOGDescriptor()
             hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
@@ -55,7 +52,6 @@ class MultiModelPersonDetector:
         except Exception as e:
             pass
 
-        # 2. YOLOv8
         try:
             from ultralytics import YOLO
             import torch
@@ -66,7 +62,6 @@ class MultiModelPersonDetector:
         except Exception as e:
             pass
 
-        # 3. MobileNet SSD
         try:
             model_dir = Path("models")
             model_dir.mkdir(exist_ok=True)
@@ -80,7 +75,6 @@ class MultiModelPersonDetector:
         except Exception as e:
             pass
 
-        # 4. Haar Cascade
         try:
             cascade_path = os.path.join(cv2.data.haarcascades, 'haarcascade_fullbody.xml')
             if os.path.exists(cascade_path):
@@ -91,7 +85,6 @@ class MultiModelPersonDetector:
         except Exception as e:
             pass
 
-        # 5. Background Subtraction
         try:
             bg_subtractor = cv2.createBackgroundSubtractorMOG2(detectShadows=True)
             self.model_objects['background_subtraction'] = bg_subtractor
@@ -99,7 +92,6 @@ class MultiModelPersonDetector:
             pass
 
     def detect_people(self, frame):
-        # Detect people in the frame using the currently selected model
         if self.current_model == 'hog':
             return self._detect_people_hog(frame)
         elif self.current_model == 'yolo':
@@ -110,16 +102,13 @@ class MultiModelPersonDetector:
             return self._detect_people_cascade(frame)
         elif self.current_model == 'background_subtraction':
             return self._detect_people_background_subtraction(frame)
-        # Always return two values
         return np.array([]), np.array([])
 
     def _detect_people_hog(self, frame):
-        # HOG + SVM (OpenCV) person detection
         boxes, weights = self.model_objects['hog'].detectMultiScale(frame, winStride=(8, 8))
         return boxes, weights
 
     def _detect_people_yolo(self, frame):
-        # YOLOv8 (Ultralytics) person detection
         results = self.model_objects['yolo'].predict(frame, classes=[0])
         boxes = []
         weights = []
@@ -131,7 +120,6 @@ class MultiModelPersonDetector:
         return np.array(boxes), np.array(weights)
 
     def _detect_people_mobilenet(self, frame):
-        # MobileNet SSD (OpenCV DNN) person detection
         blob = cv2.dnn.blobFromImage(frame, 0.007843, (300, 300), 127.5)
         self.model_objects['mobilenet'].setInput(blob)
         detections = self.model_objects['mobilenet'].forward()
@@ -139,7 +127,7 @@ class MultiModelPersonDetector:
         weights = []
         for i in range(detections.shape[2]):
             confidence = detections[0, 0, i, 2]
-            if confidence > 0.2:  # Confidence threshold
+            if confidence > 0.2:
                 x1 = int(detections[0, 0, i, 3] * frame.shape[1])
                 y1 = int(detections[0, 0, i, 4] * frame.shape[0])
                 x2 = int(detections[0, 0, i, 5] * frame.shape[1])
@@ -149,59 +137,51 @@ class MultiModelPersonDetector:
         return np.array(boxes), np.array(weights)
 
     def _detect_people_cascade(self, frame):
-        # Haar Cascade (OpenCV) person detection
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         boxes = self.model_objects['cascade'].detectMultiScale(gray, 1.1, 4)
-        weights = np.ones(len(boxes))  # No confidence scores from cascade
+        weights = np.ones(len(boxes))
         return boxes, weights
 
     def _detect_people_background_subtraction(self, frame):
-        # Background Subtraction + Contours
         fg_mask = self.model_objects['background_subtraction'].apply(frame)
         contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         boxes = []
         weights = []
         for contour in contours:
-            if cv2.contourArea(contour) > 500:  # Minimum contour area to filter out noise
+            if cv2.contourArea(contour) > 500:
                 (x, y, w, h) = cv2.boundingRect(contour)
                 boxes.append([x, y, x + w, y + h])
                 weights.append(1.0)
         return np.array(boxes), np.array(weights)
 
     def track_people(self, boxes, frame):
-        # Update tracking for detected people
         for box in boxes:
             x1, y1, x2, y2 = box
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
             detected_point = (center_x, center_y)
 
-            # Find the closest track to the detected person
             closest_track_id = None
             min_distance = float("inf")
             for track_id, track in self.person_tracks.items():
-                track_point = track[-1]  # Get the last point of the track
+                track_point = track[-1]
                 distance = np.linalg.norm(np.array(detected_point) - np.array(track_point))
                 if distance < min_distance:
                     min_distance = distance
                     closest_track_id = track_id
 
-            # If the detected person is close to an existing track, update the track
             if closest_track_id is not None and min_distance < 50:
                 self.person_tracks[closest_track_id].append(detected_point)
             else:
-                # New detection, create a new track
                 self.track_id += 1
                 self.person_tracks[self.track_id] = [detected_point]
 
-        # Remove old tracks
         current_time = time.time()
         for track_id in list(self.person_tracks.keys()):
             if current_time - self.person_tracks[track_id][-1][0] > 5:
                 del self.person_tracks[track_id]
 
     def alert_close_proximity(self, frame):
-        # Alert if two or more people are close to each other
         close_pairs = []
         boxes = [track[-1] for track in self.person_tracks.values()]
 
@@ -212,14 +192,13 @@ class MultiModelPersonDetector:
                 if distance < self.close_alert_distance:
                     close_pairs.append((i, j))
 
-        # Draw boxes and alert for close pairs
         for i, j in close_pairs:
             x1, y1, x2, y2 = boxes[i] + boxes[j]
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(frame, "Close Proximity Alert!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     def track_movement(self, boxes, frame_center):
-        """Track person movement and detect patterns"""
+        
         current_time = time.time()
         frame_height, frame_width = frame_center
 
@@ -231,7 +210,6 @@ class MultiModelPersonDetector:
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
 
-            # Find closest existing track or create new one
             min_distance = float('inf')
             closest_track = None
 
@@ -239,27 +217,24 @@ class MultiModelPersonDetector:
                 if track_data['positions']:
                     last_pos = track_data['positions'][-1]
                     dist = np.sqrt((center_x - last_pos[0])**2 + (center_y - last_pos[1])**2)
-                    if dist < min_distance and dist < 100:  # Maximum movement threshold
+                    if dist < min_distance and dist < 100:
                         min_distance = dist
                         closest_track = track_id
 
             if closest_track is None:
-                # Create new track
                 self.track_id += 1
                 self.person_tracks[self.track_id] = {
-                    'positions': deque(maxlen=30),  # Keep last 30 positions
+                    'positions': deque(maxlen=30),
                     'timestamps': deque(maxlen=30),
                 }
                 closest_track = self.track_id
 
-            # Update track
             track = self.person_tracks[closest_track]
             track['positions'].append((center_x, center_y))
             track['timestamps'].append(current_time)
 
             active_track_ids.add(closest_track)
 
-            # Close distance alert logic only
             distance = self.calculate_distance_to_camera(box)
             if closest_track not in self.close_tracks:
                 self.close_tracks[closest_track] = {
@@ -279,7 +254,6 @@ class MultiModelPersonDetector:
                 close_track['start_time'] = None
                 close_track['alerted'] = False
 
-        # Clean up old tracks
         tracks_to_remove = []
         for track_id, close_track in self.close_tracks.items():
             if track_id not in active_track_ids and current_time - close_track['last_seen'] > 5:
@@ -294,28 +268,22 @@ class MultiModelPersonDetector:
         return alerts
 
     def draw_detections(self, frame, boxes, alerts):
-        """Draw bounding boxes and information on frame"""
+        
         for i, box in enumerate(boxes):
             x1, y1, x2, y2 = box
-            # Draw bounding box
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            # Show distance above each box
             distance = self.calculate_distance_to_camera(box)
             cv2.putText(frame, f"Dist: {distance:.2f}", (x1, y1-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        # Display current model
         cv2.putText(frame, f"Model: {self.models[self.current_model]}",
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        # Display FPS
         if self.fps_history:
             avg_fps = np.mean(list(self.fps_history))
             cv2.putText(frame, f"FPS: {avg_fps:.1f}",
                        (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        # Display alerts
         for i, alert in enumerate(alerts):
             cv2.putText(frame, alert, (10, 90 + i*30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        # Display statistics
         stats = [
             f"People detected: {len(boxes)}",
             f"Total detections: {self.detection_count}",
@@ -325,12 +293,10 @@ class MultiModelPersonDetector:
         for i, stat in enumerate(stats):
             cv2.putText(frame, stat, (10, frame.shape[0] - 120 + i*20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        # On-screen notification overlay (flashing)
         if self.notification_message:
             now = time.time()
             elapsed = now - self.notification_start_time
             if elapsed < self.notification_duration:
-                # Flashing effect
                 if now - self.last_flash_time > self.notification_flash_interval:
                     self.notification_flash = not self.notification_flash
                     self.last_flash_time = now
@@ -347,60 +313,47 @@ class MultiModelPersonDetector:
         return frame
 
     def calculate_distance_to_camera(self, box):
-        """Estimate distance from camera to detected person"""
-        # Assuming box is in [x1, y1, x2, y2] format
-        # Calculate the width of the detected person in the image
+        
         person_width_pixels = box[2] - box[0]
 
-        # Assuming a constant real-world width for a person (e.g., 0.5 meters)
-        REAL_PERSON_WIDTH = 0.5  # meters
+        REAL_PERSON_WIDTH = 0.5
 
-        # Focal length estimation (this should be calibrated for your camera)
-        FOCAL_LENGTH = 800  # pixels (example value, needs calibration)
+        FOCAL_LENGTH = 800
 
-        # Distance calculation using the formula:
-        # distance = (REAL_PERSON_WIDTH * FOCAL_LENGTH) / person_width_pixels
         distance = (REAL_PERSON_WIDTH * FOCAL_LENGTH) / person_width_pixels if person_width_pixels > 0 else 0
 
         return distance
 
     def trigger_notification(self, message):
-        """Trigger an on-screen notification"""
+        
         self.notification_message = message
         self.notification_start_time = time.time()
         self.notification_flash = True
         self.last_flash_time = time.time()
 
     def run(self):
-        # Main detection and tracking loop
         cap = cv2.VideoCapture(0)
-        time.sleep(2)  # Allow camera to warm up
+        time.sleep(2)
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # Detect people in the frame
             boxes = self.detect_people(frame)
 
-            # Track detected people
             self.track_people(boxes, frame)
 
-            # Alert for close proximity
             self.alert_close_proximity(frame)
 
-            # Track movement
             self.track_movement(boxes, frame.shape[:2])
 
-            # Display the frame with detections and alerts
             cv2.imshow("People Detection and Tracking", frame)
 
             key = cv2.waitKey(1)
             if key == ord('q'):
                 break
             elif key == ord('s'):
-                # Switch detection model
                 model_keys = list(self.models.keys())
                 current_index = model_keys.index(self.current_model)
                 self.current_model = model_keys[(current_index + 1) % len(model_keys)]

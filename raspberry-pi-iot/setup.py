@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Installation and setup script for Raspberry Pi IoT device
-"""
-
 import subprocess
 import sys
 import os
@@ -12,7 +7,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 def run_command(command, description):
-    """Run a shell command and handle errors"""
+    
     logger.info(f"{description}...")
     try:
         result = subprocess.run(command, shell=True, check=True, 
@@ -24,7 +19,7 @@ def run_command(command, description):
         return False
 
 def check_raspberry_pi():
-    """Check if running on Raspberry Pi"""
+    
     try:
         with open('/proc/device-tree/model', 'r') as f:
             model = f.read().strip('\x00')
@@ -38,24 +33,21 @@ def check_raspberry_pi():
     return False
 
 def enable_interfaces():
-    """Enable I2C and camera interfaces"""
+    
     logger.info("Enabling I2C and camera interfaces...")
     
-    # Check if raspi-config is available
     if not run_command("which raspi-config", "Checking for raspi-config"):
         logger.warning("raspi-config not found - please enable I2C and camera manually")
         return False
     
-    # Enable I2C
     run_command("sudo raspi-config nonint do_i2c 0", "Enabling I2C")
     
-    # Enable camera
     run_command("sudo raspi-config nonint do_camera 0", "Enabling camera")
     
     return True
 
 def install_system_packages():
-    """Install required system packages"""
+    
     packages = [
         "python3-dev",
         "python3-pip", 
@@ -74,23 +66,19 @@ def install_system_packages():
         "libx264-dev"
     ]
     
-    # Update package list
     if not run_command("sudo apt update", "Updating package list"):
         return False
     
-    # Install packages
     package_list = " ".join(packages)
     return run_command(f"sudo apt install -y {package_list}", 
                       "Installing system packages")
 
 def install_python_packages():
-    """Install Python packages"""
+    
     logger.info("Installing Python packages...")
     
-    # Upgrade pip
     run_command("python3 -m pip install --upgrade pip", "Upgrading pip")
     
-    # Install requirements
     if os.path.exists("requirements.txt"):
         return run_command("python3 -m pip install -r requirements.txt", 
                           "Installing Python requirements")
@@ -99,13 +87,12 @@ def install_python_packages():
         return False
 
 def setup_user_permissions():
-    """Setup user permissions for GPIO and I2C"""
+    
     import getpass
     username = getpass.getuser()
     
     logger.info("Setting up user permissions...")
     
-    # Add user to gpio and i2c groups
     run_command(f"sudo usermod -a -G gpio {username}", 
                 "Adding user to gpio group")
     run_command(f"sudo usermod -a -G i2c {username}", 
@@ -114,18 +101,15 @@ def setup_user_permissions():
     return True
 
 def verify_installation():
-    """Verify the installation"""
+    
     logger.info("Verifying installation...")
     
-    # Check I2C
     if run_command("ls /dev/i2c-*", "Checking I2C devices"):
         logger.info("✓ I2C devices found")
     
-    # Check camera
     if run_command("ls /dev/video*", "Checking video devices"):
         logger.info("✓ Video devices found")
     
-    # Check Python imports
     test_imports = [
         "import RPi.GPIO",
         "import smbus2", 
@@ -142,22 +126,8 @@ def verify_installation():
             logger.error(f"✗ {import_test.split()[1]} import failed: {e}")
 
 def create_systemd_service():
-    """Create systemd service for auto-start"""
-    service_content = f"""[Unit]
-Description=Raspberry Pi IoT Device Server
-After=network.target
-
-[Service]
-Type=simple
-User={os.getenv('USER')}
-WorkingDirectory={os.getcwd()}
-ExecStart=/usr/bin/python3 main.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-"""
+    
+    service_content = f
     
     service_path = "/etc/systemd/system/iot-device.service"
     
@@ -180,19 +150,16 @@ WantedBy=multi-user.target
         logger.error(f"Failed to create systemd service: {e}")
 
 def main():
-    """Main setup function"""
+    
     logger.info("=== Raspberry Pi IoT Device Setup ===\n")
     
-    # Check if running as root
     if os.geteuid() == 0:
         logger.error("Please run this script as a regular user, not as root")
         sys.exit(1)
     
-    # Check Raspberry Pi
     is_pi = check_raspberry_pi()
     
     try:
-        # Setup steps
         if is_pi:
             enable_interfaces()
         
@@ -204,7 +171,6 @@ def main():
         
         verify_installation()
         
-        # Optional systemd service
         response = input("\nCreate auto-start service? (y/N): ").lower()
         if response == 'y':
             create_systemd_service()

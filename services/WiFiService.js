@@ -3,17 +3,13 @@ import NotificationService from './NotificationService';
 
 class WiFiService {
   constructor() {
-    this.baseURL = 'http://192.168.1.100:8080';  // Default to Pi port
+    this.baseURL = 'http://10.103.186.99:8080';
     this.isConnected = false;
     this.pollingInterval = null;
     this.onDataReceived = null;
     this.lastData = null;
     this.connectionTimeout = 5000;
-    this.lastLEDState = false;
-    this.lastChangeValues = [];
-    this.isLEDRed = false;
-    this.lastSpikeTime = 0;
-    this.deviceType = 'unknown'; // 'arduino' or 'raspberry-pi'
+    this.lastBuzzerState = false;
   }
 
   setArduinoIP = (ipAddress) => {
@@ -22,8 +18,7 @@ class WiFiService {
     if (cleanIP.includes(':')) {
       this.baseURL = `http://${cleanIP}`;
     } else {
-      // Auto-detect device type and set appropriate port
-      this.baseURL = `http://${cleanIP}:8080`; // Default to Pi port first
+      this.baseURL = `http://${cleanIP}:8080`;
     }
   };
 
@@ -32,7 +27,7 @@ class WiFiService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.connectionTimeout);
       
-      const response = await fetch(`${this.baseURL}/status`, {
+      const response = await fetch(`${this.baseURL}/`, {
         method: 'GET',
         signal: controller.signal,
         headers: {
@@ -44,13 +39,6 @@ class WiFiService {
       clearTimeout(timeoutId);
       
       if (response.ok) {
-        const data = await response.json();
-        // Detect device type from response
-        if (data.type === 'raspberry-pi' || data.name?.includes('GuardIt IMU Server')) {
-          this.deviceType = 'raspberry-pi';
-        } else {
-          this.deviceType = 'arduino';
-        }
         this.isConnected = true;
         return true;
       } else {
@@ -68,9 +56,8 @@ class WiFiService {
   };
 
   tryAlternativeEndpoints = async () => {
-    const alternativeEndpoints = ['/imu', '/data', '/sensor', '/'];
-    // Try Raspberry Pi port first, then Arduino port
-    const alternativePorts = [8080, 80];
+    const alternativeEndpoints = ['/imu', '/camera/info', '/'];
+    const alternativePorts = [8000, 8080];
     
     for (const port of alternativePorts) {
       const baseURLWithPort = this.baseURL.replace(/:\d+/, '') + `:${port}`;
@@ -92,13 +79,6 @@ class WiFiService {
           clearTimeout(timeoutId);
           
           if (response.ok) {
-            const data = await response.json();
-            // Detect device type
-            if (data.type === 'raspberry-pi' || data.name?.includes('GuardIt IMU Server')) {
-              this.deviceType = 'raspberry-pi';
-            } else {
-              this.deviceType = 'arduino';
-            }
             this.isConnected = true;
             this.baseURL = baseURLWithPort;
             return true;
@@ -140,15 +120,14 @@ class WiFiService {
       if (error.name === 'AbortError') {
         return await this.getIMUDataFromAlternativeEndpoints();
       } else {
-  
       return null;
     }
     }
   };
 
   getIMUDataFromAlternativeEndpoints = async () => {
-    const alternativeEndpoints = ['/data', '/sensor', '/'];
-    const alternativePorts = [80, 8080];
+    const alternativeEndpoints = ['/camera/info', '/'];
+    const alternativePorts = [8000, 8080];
     
     for (const port of alternativePorts) {
       const baseURLWithPort = this.baseURL.replace(/:\d+/, '') + `:${port}`;
@@ -186,12 +165,19 @@ class WiFiService {
   };
 
   startPolling = (intervalMs = 1000) => {
-    if (this.pollingInterval) {
       this.stopPolling();
-    }
+    this.lastBuzzerState = false;
     
     this.pollingInterval = setInterval(async () => {
-      await this.getIMUData();
+      try {
+        const imuData = await this.getIMUData();
+        if (imuData) {
+          this.handleIMUData(imuData);
+        }
+        
+        await this.checkDetectionAlerts();
+      } catch (error) {
+      }
     }, intervalMs);
   };
 
@@ -213,88 +199,15 @@ class WiFiService {
       return;
     }
     
-    const currentLEDState = data.alert?.active || false;
-    
-    if (currentLEDState !== this.lastLEDState) {
+    if (data.alert === true && !this.lastBuzzerState) {
+      this.triggerBuzzerAlert();
+      this.lastBuzzerState = true;
+    } else if (data.alert === false) {
+      this.lastBuzzerState = false;
     }
     
-    if (currentLEDState === true && this.lastLEDState === false) {
-      this.triggerLEDAlert(normalizedData);
-    }
-    
-    this.lastLEDState = currentLEDState;
-    
-    if (data.alert === true) {
-      this.triggerLEDAlert(normalizedData);
-    }
-    
-    if (data.alert && data.alert.shake_detected === true) {
-      this.triggerLEDAlert(normalizedData);
-    }
-    
-    if (data.accelerometer && data.accelerometer.change && data.alert && data.alert.threshold) {
-      const change = data.accelerometer.change;
-      const threshold = data.alert.threshold;
-      const isAboveThreshold = change > threshold;
-      
-      if (isAboveThreshold) {
-        this.triggerLEDAlert(normalizedData);
-      }
-    }
-    
-    if (data.accelerometer && data.accelerometer.change) {
-      const change = data.accelerometer.change;
-      
-      this.lastChangeValues.push(change);
-      if (this.lastChangeValues.length > 5) {
-        this.lastChangeValues.shift();
-      }
-      
-      const spikeThreshold = 0.01;
-      const isSignificantSpike = change > spikeThreshold;
-      
-      if (this.lastChangeValues.length >= 2) {
-        const recentChanges = this.lastChangeValues.slice(-2);
-        const averageChange = recentChanges.reduce((sum, val) => sum + val, 0) / recentChanges.length;
-        
-        if (isSignificantSpike && !this.isLEDRed) {
-          this.isLEDRed = true;
-          this.lastSpikeTime = Date.now();
-          this.triggerLEDAlert(normalizedData);
-        }
-        
-        if (this.isLEDRed && averageChange < 0.005) {
-          this.isLEDRed = false;
-        }
-      }
-    }
-    
-    if (data.accelerometer && data.accelerometer.magnitude) {
-      const magnitude = data.accelerometer.magnitude;
-      const magnitudeThreshold = 1.1;
-      const isHighAcceleration = Math.abs(magnitude - 1.0) > 0.1;
-      
-      if (isHighAcceleration) {
-        this.triggerLEDAlert(normalizedData);
-      }
-    }
-    
-    if (data.accelerometer && data.accelerometer.change && !this.isLEDRed) {
-      const change = data.accelerometer.change;
-      const backupThreshold = 0.01;
-      const isSignificantMovement = change > backupThreshold;
-      
-      if (isSignificantMovement) {
-        this.triggerLEDAlert(normalizedData);
-      }
-    }
-    
-    if (this.detectFall(normalizedData)) {
-      this.triggerFallAlert(normalizedData);
-    }
-    
-    if (this.detectUnusualMovement(normalizedData)) {
-      this.triggerMovementAlert(normalizedData);
+    if (data.alertType === 'suspicious_activity') {
+      this.triggerSuspiciousActivityAlert();
     }
     
     if (this.onDataReceived) {
@@ -302,15 +215,92 @@ class WiFiService {
     }
   };
 
-  triggerLEDAlert = async (data) => {
+  triggerBuzzerAlert = async () => {
     try {
-      const result = await NotificationService.triggerLEDAlert();
+      const result = await NotificationService.triggerBuzzerAlert();
       return result;
     } catch (error) {
     }
   };
 
+  triggerSuspiciousActivityAlert = async () => {
+    try {
+      const timestamp = new Date().toLocaleTimeString();
+      
+      const alertData = {
+        title: '🚨 Suspicious Activity Detected',
+        message: `Suspicious activity was detected at ${timestamp}`,
+        type: 'suspicious_activity',
+        timestamp: Date.now()
+      };
+      
+      this.lastSuspiciousActivityAlert = alertData;
+      
+      if (this.onSuspiciousActivityAlert) {
+        this.onSuspiciousActivityAlert(alertData);
+      }
+      
+      return true;
+    } catch (error) {
+      return false;
+      }
+  };
+
+  activateBuzzer = async (frequency = 1000, duration = 1.0) => {
+    try {
+      const response = await fetch(`${this.baseURL}/buzzer`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          frequency: frequency,
+          duration: duration
+        }),
+      });
+      
+      if (response.ok) {
+        const responseData = await response.json();
+        
+        setTimeout(() => {
+          this.triggerBuzzerAlert();
+        }, 100);
+        return true;
+      } else {
+        const errorText = await response.text();
+        
+        this.triggerBuzzerAlert();
+        return false;
+      }
+    } catch (error) {
+      this.triggerBuzzerAlert();
+      return false;
+    }
+  };
+
   normalizeDataFormat = (data) => {
+    if (data.data && data.data.accelerometer) {
+      const accel = data.data.accelerometer;
+      const gyro = data.data.gyroscope || { x: 0, y: 0, z: 0 };
+      const temp = data.data.temperature || 25;
+      
+      const magnitude = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+      
+      return {
+        ax: accel.x,
+        ay: accel.y,
+        az: accel.z,
+        gx: gyro.x,
+        gy: gyro.y,
+        gz: gyro.z,
+        temp: temp,
+        timestamp: Date.now(),
+        magnitude: magnitude,
+        change: magnitude
+      };
+    }
+    
     if (data.accelerometer && typeof data.accelerometer.x !== 'undefined') {
       return {
         ax: data.accelerometer.x,
@@ -320,8 +310,6 @@ class WiFiService {
         gy: 0,
         gz: 0,
         temp: 25,
-        alert: data.alert?.active || false,
-        alert_type: data.alert?.shake_detected ? 'shake' : '',
         timestamp: data.timestamp || Date.now(),
         magnitude: data.accelerometer.magnitude,
         change: data.accelerometer.change
@@ -375,18 +363,48 @@ class WiFiService {
     try {
       await NotificationService.triggerLEDAlert();
     } catch (error) {
+      return false;
     }
   };
 
-  triggerMovementAlert = async (data) => {
+  async activateBuzzer(frequency = 1000, duration = 2000) {
     try {
-      await NotificationService.triggerLEDAlert();
+      const response = await fetch(`${this.baseURL}/buzzer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          frequency: frequency,
+          duration: duration,
+        }),
+      });
+
+      if (response.ok) {
+        const responseData = await response.json();
+        
+        setTimeout(() => {
+          this.triggerBuzzerAlert();
+        }, 500);
+        
+        return true;
+      } else {
+        const errorText = await response.text();
+        
+        this.triggerBuzzerAlert();
+        
+        return false;
+      }
     } catch (error) {
     }
   };
 
   setDataCallback = (callback) => {
     this.onDataReceived = callback;
+  };
+
+  setSuspiciousActivityAlertCallback = (callback) => {
+    this.onSuspiciousActivityAlert = callback;
   };
 
   getConnectionStatus = () => {
@@ -401,94 +419,9 @@ class WiFiService {
     return this.baseURL;
   };
 
-  getDeviceType = () => {
-    return this.deviceType;
-  };
-
-  // Camera-related methods
-  getCameraStatus = async () => {
+  enableDetection = async () => {
     try {
-      const response = await fetch(`${this.baseURL}/camera`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        return await response.json();
-      } else {
-        return { error: 'Failed to get camera status' };
-      }
-    } catch (error) {
-      return { error: `Camera status error: ${error.message}` };
-    }
-  };
-
-  captureCSIImage = async (width = 640, height = 480) => {
-    try {
-      const response = await fetch(`${this.baseURL}/camera/csi?width=${width}&height=${height}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        return await response.json();
-      } else {
-        return { error: 'Failed to capture CSI image' };
-      }
-    } catch (error) {
-      return { error: `CSI capture error: ${error.message}` };
-    }
-  };
-
-  captureUSBImage = async (width = 640, height = 480) => {
-    try {
-      const response = await fetch(`${this.baseURL}/camera/usb?width=${width}&height=${height}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        return await response.json();
-      } else {
-        return { error: 'Failed to capture USB image' };
-      }
-    } catch (error) {
-      return { error: `USB capture error: ${error.message}` };
-    }
-  };
-
-  captureBothImages = async (width = 640, height = 480) => {
-    try {
-      const response = await fetch(`${this.baseURL}/camera/both?width=${width}&height=${height}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        return await response.json();
-      } else {
-        return { error: 'Failed to capture from both cameras' };
-      }
-    } catch (error) {
-      return { error: `Dual capture error: ${error.message}` };
-    }
-  };
-
-  startCameraStream = async () => {
-    try {
-      const response = await fetch(`${this.baseURL}/stream/start`, {
+      const response = await fetch(`${this.baseURL}/detection/enable`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -497,18 +430,18 @@ class WiFiService {
       });
       
       if (response.ok) {
-        return await response.json();
+        return true;
       } else {
-        return { error: 'Failed to start camera stream' };
+        return false;
       }
     } catch (error) {
-      return { error: `Stream start error: ${error.message}` };
+      return false;
     }
   };
 
-  stopCameraStream = async () => {
+  disableDetection = async () => {
     try {
-      const response = await fetch(`${this.baseURL}/stream/stop`, {
+      const response = await fetch(`${this.baseURL}/detection/disable`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -517,18 +450,18 @@ class WiFiService {
       });
       
       if (response.ok) {
-        return await response.json();
+        return true;
       } else {
-        return { error: 'Failed to stop camera stream' };
+        return false;
       }
     } catch (error) {
-      return { error: `Stream stop error: ${error.message}` };
+      return false;
     }
   };
 
-  getStreamFrame = async () => {
+  getDetectionStatus = async () => {
     try {
-      const response = await fetch(`${this.baseURL}/stream/frame`, {
+      const response = await fetch(`${this.baseURL}/detection/status`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -537,20 +470,38 @@ class WiFiService {
       });
       
       if (response.ok) {
-        return await response.json();
+        const data = await response.json();
+        return data;
       } else {
-        return { error: 'Failed to get stream frame' };
+        return null;
       }
     } catch (error) {
-      return { error: `Stream frame error: ${error.message}` };
+      return null;
+    }
+  };
+
+  checkDetectionAlerts = async () => {
+    try {
+      const detectionStatus = await this.getDetectionStatus();
+      
+      if (detectionStatus && detectionStatus.enabled) {
+        if (detectionStatus.last_detection) {
+          const lastDetectionTime = detectionStatus.last_detection * 1000;
+          const currentTime = Date.now();
+          const timeDiff = currentTime - lastDetectionTime;
+          
+          if (timeDiff < 5000) {
+            await this.triggerSuspiciousActivityAlert();
+          }
+        }
+      }
+    } catch (error) {
     }
   };
 
   destroy = () => {
     this.stopPolling();
-    this.isConnected = false;
-    this.onDataReceived = null;
-  };
+  }
 }
 
-export default new WiFiService(); 
+export default new WiFiService();
