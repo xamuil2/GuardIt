@@ -8,6 +8,10 @@ import io
 from PIL import Image
 import asyncio
 import logging
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../OpenCV Testing')))
+from detector import MultiModelPersonDetector
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,6 +24,8 @@ class GuardItCameraManager:
         self.streaming = False
         self.frame_callbacks = []
         
+        self.detector = MultiModelPersonDetector()
+
         self._detect_cameras()
     
     def _detect_cameras(self):
@@ -119,24 +125,20 @@ class GuardItCameraManager:
             while self.streaming:
                 ret, frame = cap.read()
                 if ret and frame is not None:
-                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                    frame_bytes = buffer.tobytes()
-                    
-                    frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
-                    
-                    yield {
-                        'timestamp': time.time(),
-                        'camera': 'usb',
-                        'format': 'jpeg',
-                        'data': frame_b64,
-                        'size': len(frame_bytes)
-                    }
-                
+                    frame = cv2.flip(frame, 1)
+                    boxes, weights = self.detector.detect_people(frame)
+                    alerts = self.detector.track_movement(boxes, (frame.shape[0], frame.shape[1]))
+                    frame = self.detector.draw_detections(frame, boxes, alerts)
+                    cv2.imshow('GuardIt USB Camera', frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+
                 time.sleep(0.066)
         
         finally:
             cap.release()
-    
+            cv2.destroyAllWindows()
+
     def start_streaming(self):
         
         self.streaming = True
@@ -196,18 +198,21 @@ def demo_camera_integration():
         try:
             csi_path = cam_manager.capture_csi_image()
         except Exception as e:
-    
+            logger.error(f"Error capturing CSI image: {e}")
+
     if status['usb_available']:
         try:
             usb_path = cam_manager.capture_usb_image()
         except Exception as e:
-    
+            logger.error(f"Error capturing USB image: {e}")
+
     if status['capabilities']['dual_capture']:
         async def test_dual():
             try:
                 result = await cam_manager.get_dual_capture()
                 return True
             except Exception as e:
+                logger.error(f"Error in dual capture: {e}")
                 return False
         
         import asyncio
