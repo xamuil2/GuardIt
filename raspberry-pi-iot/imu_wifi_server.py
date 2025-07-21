@@ -374,6 +374,7 @@ class CameraManager:
                                     self.detection_callback("suspicious_activity")
                             
                             except Exception as e:
+                                logger.debug(f"Detection processing error: {e}")
                         
                         frame_to_encode = processed_frame if self.detection_enabled else frame
                         
@@ -389,6 +390,10 @@ class CameraManager:
                     time.sleep(0.1)
         
         except Exception as e:
+            logger.error(f"USB capture setup error: {e}")
+
+            print("run")
+
         finally:
             if cap.isOpened():
                 cap.release()
@@ -1178,7 +1183,10 @@ class GuardItIMUServer:
                 
                 self.last_hardware_trigger_time = current_time
                 
+                if self.notification_handler:
+                    self.notification_handler.trigger_notification("suspicious_activity")
             else:
+                logger.debug("Suspicious activity detected but still in notification cooldown")
     
     def enable_object_detection(self) -> dict:
         
@@ -1259,13 +1267,16 @@ class GuardItIMUServer:
                 current_time = time.time() * 1000
                 if hasattr(self, 'last_debug_time'):
                     if current_time - self.last_debug_time > 5000:
-                              f"Gyro: {gx_raw}, {gy_raw}, {gz_raw} | Temp: {temp_raw}")
+                        logger.debug(f"Gyro: {gx_raw}, {gy_raw}, {gz_raw} | Temp: {temp_raw}")
                         self.last_debug_time = current_time
                 else:
                     self.last_debug_time = current_time
             else:
+                logger.warning("Insufficient IMU data received")
+                logger.warning("Not working")
                 
         except Exception as e:
+            logger.error(f"Error reading IMU data: {e}")
     
     def detect_events(self):
         
@@ -1293,6 +1304,7 @@ class GuardItIMUServer:
                 self.last_alert_time = current_time
                 self.last_notification_time = current_time
             else:
+                logger.debug("Fall detected but still in notification cooldown")
         elif accel_magnitude <= FALL_THRESHOLD:
             self.fall_detected = False
         
@@ -1304,6 +1316,7 @@ class GuardItIMUServer:
                 self.last_alert_time = current_time
                 self.last_notification_time = current_time
             else:
+                logger.debug("Movement detected but still in notification cooldown")
         elif gyro_magnitude <= MOVEMENT_THRESHOLD:
             self.movement_detected = False
         
@@ -1335,6 +1348,7 @@ class GuardItIMUServer:
             if current_time - self.last_print_time > 1000:
                 cooldown_remaining = max(0, NOTIFICATION_COOLDOWN - (current_time - self.last_notification_time))
                 alert_status = f"{self.current_data.alertType}" if self.current_data.alert else "None"
+                logger.debug(f"Accel: {self.current_data.ax:.2f}, {self.current_data.ay:.2f}, {self.current_data.az:.2f} | "
                       f"Gyro: {self.current_data.gx:.2f}, {self.current_data.gy:.2f}, {self.current_data.gz:.2f} | "
                       f"Temp: {self.current_data.temp:.1f}°C | Alert: {alert_status} | "
                       f"Cooldown: {cooldown_remaining/1000:.1f}s")
@@ -1394,8 +1408,12 @@ class GuardItIMUServer:
         
         try:
             local_ip = self.get_local_ip()
+            logger.info(f"🚀 Starting GuardIt IMU Server on {local_ip}:{SERVER_PORT}")
             self.app.run(host='0.0.0.0', port=SERVER_PORT, debug=False)
         except KeyboardInterrupt:
+            logger.info("🛑 Server stopped by user")
+        except Exception as e:
+            logger.error(f"❌ Server error: {e}")
         finally:
             self.cleanup()
     
@@ -1428,7 +1446,9 @@ def main():
         server = GuardItIMUServer()
         server.run_server()
     except KeyboardInterrupt:
+        logger.info("🛑 Application stopped by user")
     except Exception as e:
+        logger.error(f"❌ Application error: {e}")
         import traceback
         traceback.print_exc()
     finally:
@@ -1440,7 +1460,9 @@ def main():
                     server.camera.stop_csi_streaming()
             
             GPIO.cleanup()
+            logger.info("🧹 Cleanup completed")
         except Exception as cleanup_error:
+            logger.error(f"❌ Cleanup error: {cleanup_error}")
 
 if __name__ == "__main__":
     main()
