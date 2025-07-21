@@ -80,7 +80,17 @@ def gen_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-HTML_PAGE = 
+HTML_PAGE = '''
+<html>
+<head>
+    <title>Camera Feed</title>
+</head>
+<body>
+    <h1>Camera Feed</h1>
+    <img src="/video_feed" width="640" height="480" />
+</body>
+</html>
+'''
 
 @app.route('/')
 def index():
