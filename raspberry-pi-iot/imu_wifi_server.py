@@ -24,6 +24,9 @@ import io
 from PIL import Image
 import os
 
+# Object detection imports
+from object_detector import GuardItPersonDetector
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -162,7 +165,7 @@ class IMUData:
     alertType: str = ""
 
 class CameraManager:
-    """Camera manager for USB and CSI cameras"""
+    """Camera manager for USB and CSI cameras with object detection"""
     
     def __init__(self):
         self.csi_available = False
@@ -181,7 +184,24 @@ class CameraManager:
         self.csi_frame_lock = threading.Lock()
         self.csi_capture_thread = None
         self.csi_capture_running = False
+        
+        # Object detection
+        self.detector = None
+        self.detection_enabled = False
+        self.last_detection_alert = 0
+        self.detection_callback = None  # Callback function for detection alerts
+        
         self._detect_cameras()
+        self._initialize_detector()
+    
+    def _initialize_detector(self):
+        """Initialize object detection"""
+        try:
+            self.detector = GuardItPersonDetector()
+            logger.info("✅ Object detection initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize object detection: {e}")
+            self.detector = None
     
     def _detect_cameras(self):
         """Detect available cameras"""
@@ -241,7 +261,7 @@ class CameraManager:
         print("🛑 Background camera capture stopped")
     
     def _background_usb_capture(self):
-        """Background thread for USB camera capture using OpenCV"""
+        """Background thread for USB camera capture using OpenCV with object detection"""
         print("🎥 Background USB capture started")
         
         cap = cv2.VideoCapture(self.usb_device_id, cv2.CAP_V4L2)
@@ -253,19 +273,45 @@ class CameraManager:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
             cap.set(cv2.CAP_PROP_FPS, 30)
             
+            frame_count = 0
+            detection_interval = 10  # Process every 10th frame for detection
+            
             while self.capture_running and cap.isOpened():
                 try:
                     ret, frame = cap.read()
                     if ret and frame is not None:
-                        # Clear buffer to get latest frame only
-                        for _ in range(cap.get(cv2.CAP_PROP_BUFFERSIZE)):
+                        # Clear buffer to get latest frame only (convert float to int)
+                        buffer_size = int(cap.get(cv2.CAP_PROP_BUFFERSIZE))
+                        for _ in range(max(1, buffer_size)):  # Ensure at least 1 iteration
                             cap.grab()
                         
+                        # Object detection (every Nth frame to reduce CPU load)
+                        detection_triggered = False
+                        processed_frame = frame
+                        
+                        if (self.detection_enabled and self.detector and 
+                            frame_count % detection_interval == 0):
+                            try:
+                                detection_triggered, processed_frame = self.detector.process_detection(frame)
+                                
+                                if detection_triggered and self.detection_callback:
+                                    # Trigger detection alert
+                                    self.detection_callback("suspicious_activity")
+                                    print("🚨 PERSON DETECTED - Suspicious activity alert triggered!")
+                            
+                            except Exception as e:
+                                print(f"Detection processing error: {e}")
+                        
+                        # Use processed frame (with detection boxes if enabled)
+                        frame_to_encode = processed_frame if self.detection_enabled else frame
+                        
                         # Ultra-fast JPEG compression (quality 20)
-                        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 20])
+                        _, buffer = cv2.imencode('.jpg', frame_to_encode, [cv2.IMWRITE_JPEG_QUALITY, 20])
                         
                         with self.frame_lock:
                             self.latest_frame = buffer.tobytes()
+                        
+                        frame_count += 1
                     
                     time.sleep(0.008)  # ~130 FPS theoretical max
                 except Exception as e:
@@ -555,8 +601,38 @@ class CameraManager:
             'csi_available': self.csi_available,
             'usb_available': self.usb_available,
             'usb_device_id': self.usb_device_id,
-            'streaming': self.streaming
+            'streaming': self.streaming,
+            'detection_enabled': self.detection_enabled,
+            'detector_status': self.detector.get_status() if self.detector else None
         }
+    
+    def enable_detection(self):
+        """Enable object detection"""
+        if self.detector:
+            self.detection_enabled = True
+            self.detector.enable_detection()
+            print("✅ Object detection enabled")
+            return True
+        else:
+            print("❌ Object detector not available")
+            return False
+    
+    def disable_detection(self):
+        """Disable object detection"""
+        self.detection_enabled = False
+        if self.detector:
+            self.detector.disable_detection()
+        print("🛑 Object detection disabled")
+    
+    def set_detection_callback(self, callback):
+        """Set callback function for detection alerts"""
+        self.detection_callback = callback
+    
+    def set_detection_model(self, model_name):
+        """Switch detection model"""
+        if self.detector:
+            return self.detector.set_model(model_name)
+        return False
     
     def cleanup(self):
         """Cleanup camera resources"""
@@ -597,6 +673,10 @@ class GuardItIMUServer:
         
         # Initialize camera
         self.camera = CameraManager()
+        
+        # Set detection callback to trigger alerts
+        if self.camera:
+            self.camera.set_detection_callback(self.handle_detection_alert)
         
         if not self.init_mpu6050():
             print("Failed to initialize MPU6050!")
@@ -734,6 +814,24 @@ class GuardItIMUServer:
         def get_raw_stream():
             return self.get_raw_stream_response()
         
+        # Object detection endpoints
+        @self.app.route("/detection/enable", methods=["POST"])
+        def enable_detection():
+            return jsonify(self.enable_object_detection())
+        
+        @self.app.route("/detection/disable", methods=["POST"])
+        def disable_detection():
+            return jsonify(self.disable_object_detection())
+        
+        @self.app.route("/detection/status", methods=["GET"])
+        def detection_status():
+            return jsonify(self.get_detection_status())
+        
+        @self.app.route("/detection/model", methods=["POST"])
+        def set_detection_model():
+            model_name = request.json.get('model', 'hog') if request.json else 'hog'
+            return jsonify(self.set_detection_model(model_name))
+        
         @self.app.after_request
         def after_request(response):
             response.headers.add('Access-Control-Allow-Origin', '*')
@@ -775,7 +873,7 @@ class GuardItIMUServer:
             "ip": local_ip,
             "port": SERVER_PORT,
             "status": "running",
-            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/usb", "/camera/both", "/stream/start", "/stream/stop", "/stream/frame", "/stream/fast", "/stream/raw"],
+            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/usb", "/camera/both", "/stream/start", "/stream/stop", "/stream/frame", "/stream/fast", "/stream/raw", "/detection/enable", "/detection/disable", "/detection/status", "/detection/model"],
             "camera_status": self.camera.get_camera_status() if self.camera else {}
         }
     
@@ -1003,6 +1101,68 @@ class GuardItIMUServer:
         
         return Response("Error: No frame available", status=503, mimetype='text/plain')
     
+    def handle_detection_alert(self, alert_type):
+        """Handle object detection alerts"""
+        current_time = time.time() * 1000
+        
+        if alert_type == "suspicious_activity":
+            # Check cooldown to prevent spam
+            if (current_time - self.last_notification_time) > NOTIFICATION_COOLDOWN:
+                # Set alert data
+                self.current_data.alert = True
+                self.current_data.alertType = "suspicious_activity"
+                self.last_alert_time = current_time
+                self.last_notification_time = current_time
+                
+                # Trigger hardware alerts (LED red + buzzer)
+                self.last_hardware_trigger_time = current_time
+                
+                print(f"🚨 SUSPICIOUS ACTIVITY DETECTED!")
+                print(f"🔴 Camera stream will flash red for 2 seconds")
+                print(f"🚨 Notification sent (cooldown: {NOTIFICATION_COOLDOWN/1000}s)")
+            else:
+                print(f"🔇 Suspicious activity detected but notification suppressed (cooldown active)")
+    
+    def enable_object_detection(self) -> dict:
+        """Enable object detection"""
+        if not self.camera:
+            return {"error": "Camera not initialized"}
+        
+        if self.camera.enable_detection():
+            return {"success": True, "message": "Object detection enabled"}
+        else:
+            return {"error": "Failed to enable object detection"}
+    
+    def disable_object_detection(self) -> dict:
+        """Disable object detection"""
+        if not self.camera:
+            return {"error": "Camera not initialized"}
+        
+        self.camera.disable_detection()
+        return {"success": True, "message": "Object detection disabled"}
+    
+    def get_detection_status(self) -> dict:
+        """Get object detection status"""
+        if not self.camera:
+            return {"error": "Camera not initialized"}
+        
+        camera_status = self.camera.get_camera_status()
+        return {
+            "detection_enabled": camera_status.get('detection_enabled', False),
+            "detector_status": camera_status.get('detector_status', None),
+            "camera_streaming": camera_status.get('streaming', False)
+        }
+    
+    def set_detection_model(self, model_name) -> dict:
+        """Set detection model"""
+        if not self.camera:
+            return {"error": "Camera not initialized"}
+        
+        if self.camera.set_detection_model(model_name):
+            return {"success": True, "message": f"Detection model set to {model_name}"}
+        else:
+            return {"error": f"Failed to set detection model to {model_name}"}
+    
     def read_imu_data(self):
         """Read IMU data - exact Arduino equivalent"""
         try:
@@ -1145,9 +1305,10 @@ class GuardItIMUServer:
         if hasattr(self, 'last_print_time'):
             if current_time - self.last_print_time > 1000:  # 1 second
                 cooldown_remaining = max(0, NOTIFICATION_COOLDOWN - (current_time - self.last_notification_time))
+                alert_status = f"{self.current_data.alertType}" if self.current_data.alert else "None"
                 print(f"Accel: {self.current_data.ax:.2f}, {self.current_data.ay:.2f}, {self.current_data.az:.2f} | "
                       f"Gyro: {self.current_data.gx:.2f}, {self.current_data.gy:.2f}, {self.current_data.gz:.2f} | "
-                      f"Temp: {self.current_data.temp:.1f}°C | Alert: {self.current_data.alert} | "
+                      f"Temp: {self.current_data.temp:.1f}°C | Alert: {alert_status} | "
                       f"Cooldown: {cooldown_remaining/1000:.1f}s")
                 self.last_print_time = current_time
         else:

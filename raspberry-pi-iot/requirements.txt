@@ -10,3 +10,8 @@ aiofiles==23.2.1
 pydantic==2.5.0
 asyncio-mqtt==0.16.1
 Pillow==10.1.0
+flask==3.0.0
+
+# Object detection dependencies
+ultralytics>=8.0.0  # Optional - for YOLO (more resource intensive)
+pygame>=2.5.0       # Optional - for sound alerts
