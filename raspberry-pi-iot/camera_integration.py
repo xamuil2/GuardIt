@@ -8,8 +8,9 @@ import io
 from PIL import Image
 import asyncio
 import logging
+import os
 import sys
-sys.path.append('../OpenCV Testing')
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../OpenCV Testing')))
 from detector import MultiModelPersonDetector
 
 logging.basicConfig(level=logging.INFO)
