@@ -83,8 +83,8 @@ class NotificationService {
 
     const timestamp = new Date().toLocaleTimeString();
     const success = await this.sendNotification(
-      'Device Movement Detected',
-      `Device has been moved at ${timestamp}`,
+      '📱 Device Movement Alert',
+      `Unusual device movement detected at ${timestamp}`,
       { data: { type: 'motion_alert', timestamp: now } }
     );
 
@@ -92,8 +92,8 @@ class NotificationService {
       this.lastNotificationTime = now;
       await this.addNotificationToHistory({
         id: Date.now().toString(),
-        title: 'Device Movement Detected',
-        body: `Device has been moved at ${timestamp}`,
+        title: '📱 Device Movement Alert',
+        body: `Unusual device movement detected at ${timestamp}`,
         type: 'motion_alert',
         timestamp: now,
         read: false
@@ -128,6 +128,44 @@ class NotificationService {
         title: 'Suspicious Activity Detected',
         body: `Suspicious activity detected at ${timestamp}`,
         type: 'suspicious_activity',
+        timestamp: now,
+        read: false
+      });
+    }
+  }
+
+  async triggerProximityAlert() {
+    const now = Date.now();
+    if (now - this.lastNotificationTime < this.notificationCooldown) {
+      return;
+    }
+
+    if (!this.isInitialized) {
+      const initialized = await this.initialize();
+      if (!initialized) {
+        return;
+      }
+    }
+
+    const timestamp = new Date().toLocaleTimeString();
+    const success = await this.sendNotification(
+      '⚠️ Proximity Warning',
+      `Person detected too close to camera at ${timestamp}`,
+      { 
+        data: { type: 'proximity_alert', timestamp: now },
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        vibrate: [0, 250, 250, 250, 250, 250],
+        sound: true
+      }
+    );
+
+    if (success) {
+      this.lastNotificationTime = now;
+      await this.addNotificationToHistory({
+        id: Date.now().toString(),
+        title: '⚠️ Proximity Warning',
+        body: `Person detected too close to camera at ${timestamp}`,
+        type: 'proximity_alert',
         timestamp: now,
         read: false
       });

@@ -6,8 +6,8 @@ import { useNavigation } from '@react-navigation/native';
 import WiFiService from '../services/WiFiService';
 
 export default function ConnectionScreen() {
-  const [raspberryPiIP, setRaspberryPiIP] = useState('10.103.186.99:8080');
-  const [cameraStreamIP, setCameraStreamIP] = useState('10.103.186.99:8080');
+  const [raspberryPiIP, setRaspberryPiIP] = useState('10.103.135.13:8080');
+  const [cameraStreamIP, setCameraStreamIP] = useState('10.103.135.13:8080');
   const [isConnecting, setIsConnecting] = useState(false);
   const navigation = useNavigation();
 
@@ -80,7 +80,7 @@ export default function ConnectionScreen() {
                 style={styles.ipInput}
                 value={raspberryPiIP}
                 onChangeText={setRaspberryPiIP}
-                placeholder="10.103.186.99:8080"
+                placeholder="10.103.135.13:8080"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
                 keyboardType="url"
                 autoCapitalize="none"

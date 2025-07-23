@@ -291,7 +291,7 @@ export default function IMUScreen() {
                 style={styles.ipInput}
                 value={arduinoIP}
                 onChangeText={setArduinoIP}
-                placeholder="10.103.186.99:8080"
+                placeholder="10.103.135.13:8080"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
                 keyboardType="numeric"
               />

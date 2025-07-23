@@ -45,7 +45,7 @@ export default function HomeScreen() {
     }
   };
 
-  const [cameraIP, setCameraIP] = useState('10.103.186.99:8080');
+  const [cameraIP, setCameraIP] = useState('10.103.135.13:8080');
 
   const openCameraStream = () => {
     navigation.navigate('CameraStream', { cameraIP });

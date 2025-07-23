@@ -3,7 +3,7 @@ import NotificationService from './NotificationService';
 
 class WiFiService {
   constructor() {
-    this.baseURL = 'http://10.103.186.99:8080';
+    this.baseURL = 'http://10.103.135.13:8080';
     this.isConnected = false;
     this.pollingInterval = null;
     this.onDataReceived = null;
@@ -210,6 +210,10 @@ class WiFiService {
       this.triggerSuspiciousActivityAlert();
     }
     
+    if (data.alertType === 'proximity_alert') {
+      this.triggerProximityAlert();
+    }
+    
     if (this.onDataReceived) {
       this.onDataReceived(normalizedData);
     }
@@ -244,6 +248,31 @@ class WiFiService {
     } catch (error) {
       return false;
       }
+  };
+
+  triggerProximityAlert = async () => {
+    try {
+      const result = await NotificationService.triggerProximityAlert();
+      
+      const timestamp = new Date().toLocaleTimeString();
+      
+      const alertData = {
+        title: '⚠️ Proximity Warning',
+        message: `Person detected too close to camera at ${timestamp}`,
+        type: 'proximity_alert',
+        timestamp: Date.now()
+      };
+      
+      this.lastProximityAlert = alertData;
+      
+      if (this.onProximityAlert) {
+        this.onProximityAlert(alertData);
+      }
+      
+      return result;
+    } catch (error) {
+      return false;
+    }
   };
 
   activateBuzzer = async (frequency = 1000, duration = 1.0) => {
@@ -405,6 +434,10 @@ class WiFiService {
 
   setSuspiciousActivityAlertCallback = (callback) => {
     this.onSuspiciousActivityAlert = callback;
+  };
+
+  setProximityAlertCallback = (callback) => {
+    this.onProximityAlert = callback;
   };
 
   getConnectionStatus = () => {

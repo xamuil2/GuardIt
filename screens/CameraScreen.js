@@ -9,7 +9,7 @@ export default function CameraScreen() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [serverIP, setServerIP] = useState('10.103.186.99:8080');
+  const [serverIP, setServerIP] = useState('10.103.135.13:8080');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamURL, setStreamURL] = useState(null);
   const [motionDetected, setMotionDetected] = useState(false);
