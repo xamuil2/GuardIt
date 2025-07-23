@@ -121,7 +121,7 @@ export default function NotificationsScreen() {
                 {notificationService.formatTimestamp(item.timestamp)}
               </Text>
               <Text style={[styles.notificationDate, item.read && styles.readText]}>
-                {item.date} at {item.time}
+                {item.date} {item.time}
               </Text>
             </View>
           </View>
@@ -139,13 +139,24 @@ export default function NotificationsScreen() {
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
       <LinearGradient
-        colors={['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)']}
+        colors={['rgba(255, 68, 68, 0.1)', 'rgba(255, 68, 68, 0.05)']}
         style={styles.emptyGradient}
       >
-        <Ionicons name="notifications-off" size={64} color="#888" />
+        <View style={styles.emptyIconContainer}>
+          <LinearGradient
+            colors={['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
+            style={styles.emptyIconBackground}
+          >
+            <Ionicons name="arrow-back" size={48} color="white" />
+          </LinearGradient>
+        </View>
         <Text style={styles.emptyTitle}>No Notifications</Text>
         <Text style={styles.emptySubtitle}>
           You'll see alerts here when your GuardIt device detects movement or other security events.
+        </Text>
+        <View style={styles.emptyDivider} />
+        <Text style={styles.emptyHint}>
+          Your security system is monitoring and will notify you of any activity
         </Text>
       </LinearGradient>
     </View>
@@ -153,7 +164,7 @@ export default function NotificationsScreen() {
 
   return (
     <LinearGradient
-      colors={['#0a0a0a', '#1a1a1a', '#2d1b1b']}
+      colors={['#0a0a0a', '#1a1a1a', '#0a0a0a']}
       style={styles.container}
     >
       <View style={styles.header}>
@@ -161,18 +172,31 @@ export default function NotificationsScreen() {
           style={styles.backButton} 
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="white"/>
+          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Notifications</Text>
+          <Text style={styles.headerSubtitle}>Security Alerts & Updates</Text>
+        </View>
         <View style={styles.headerActions}>
           {unreadCount > 0 && (
             <TouchableOpacity style={styles.markAllButton} onPress={markAllAsRead}>
-              <Ionicons name="checkmark-done" size={20} color="#44ff44"/>
+              <LinearGradient
+                colors={['rgba(68, 255, 68, 0.2)', 'rgba(68, 255, 68, 0.1)']}
+                style={styles.actionButtonGradient}
+              >
+                <Ionicons name="checkmark-done" size={18} color="#44ff44"/>
+              </LinearGradient>
             </TouchableOpacity>
           )}
           {notifications.length > 0 && (
             <TouchableOpacity style={styles.clearAllButton} onPress={clearAllNotifications}>
-              <Ionicons name="trash" size={20} color="#ff4444"/>
+              <LinearGradient
+                colors={['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
+                style={styles.actionButtonGradient}
+              >
+                <Ionicons name="trash" size={18} color="#ff4444"/>
+              </LinearGradient>
             </TouchableOpacity>
           )}
         </View>
@@ -182,10 +206,12 @@ export default function NotificationsScreen() {
         {unreadCount > 0 && (
           <View style={styles.unreadBanner}>
             <LinearGradient
-              colors={['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
+              colors={['rgba(255, 68, 68, 0.15)', 'rgba(255, 68, 68, 0.08)']}
               style={styles.unreadBannerGradient}
             >
-              <Ionicons name="notifications" size={20} color="#ff4444"/>
+              <View style={styles.unreadIconContainer}>
+                <Ionicons name="notifications" size={20} color="#ff4444"/>
+              </View>
               <Text style={styles.unreadText}>
                 {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
               </Text>
@@ -214,28 +240,39 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
+    backgroundColor: '#0a0a0a',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 20,
     paddingHorizontal: 20,
+    backgroundColor: '#1a1a1a',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 68, 68, 0.15)',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 15,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(255, 68, 68, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 4,
   },
   headerActions: {
     flexDirection: 'row',
@@ -248,12 +285,34 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(68, 255, 68, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(68, 255, 68, 0.3)',
   },
   clearAllButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 68, 68, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.3)',
+  },
+  headerContent: {
+    flex: 1,
+  },
+  backButtonGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ff4444',
+  },
+  actionButtonGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -271,6 +330,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderRadius: 15,
+    backgroundColor: 'rgba(255, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: '#ff4444',
+  },
+  unreadIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 68, 68, 0.2)',
   },
   unreadText: {
     flex: 1,
@@ -291,13 +361,22 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 15,
     overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.15)',
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
   },
   unreadNotification: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 68, 68, 0.3)',
+    borderWidth: 2,
+    borderColor: '#ff4444',
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
   },
   notificationGradient: {
     padding: 20,
+    backgroundColor: 'transparent',
   },
   notificationHeader: {
     flexDirection: 'row',
@@ -324,10 +403,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: 'white',
     marginBottom: 5,
+    letterSpacing: 0.5,
   },
   notificationBody: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(255, 255, 255, 0.85)',
     marginBottom: 10,
     lineHeight: 20,
   },
@@ -338,11 +418,12 @@ const styles = StyleSheet.create({
   },
   notificationTime: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#ff4444',
+    fontWeight: 'bold',
   },
   notificationDate: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255, 255, 255, 0.7)',
   },
   readText: {
     color: 'rgba(255, 255, 255, 0.5)',
@@ -355,24 +436,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+    backgroundColor: '#0a0a0a',
   },
   emptyGradient: {
     alignItems: 'center',
     padding: 40,
     borderRadius: 20,
     width: '100%',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#ff4444',
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  emptyIconBackground: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: 'white',
+    color: '#ff4444',
     marginTop: 20,
     marginBottom: 10,
+    textShadowColor: 'rgba(255, 68, 68, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   emptySubtitle: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.7)',
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 20,
+  },
+  emptyDivider: {
+    width: '80%',
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 15,
+  },
+  emptyHint: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

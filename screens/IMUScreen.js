@@ -12,7 +12,7 @@ export default function IMUScreen() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [arduinoIP, setArduinoIP] = useState('10.103.186.99:8080');
+  const [arduinoIP, setArduinoIP] = useState('172.20.10.13:8080');
   const [connectionRetries, setConnectionRetries] = useState(0);
   const [lastError, setLastError] = useState(null);
   const [connectedPort, setConnectedPort] = useState(null);
@@ -46,9 +46,32 @@ export default function IMUScreen() {
     
     const interval = setInterval(updateNotificationCount, 2000);
 
+    let lastBuzzerStatus = false;
+    const pollBuzzer = async () => {
+      try {
+        const response = await fetch(`http://${arduinoIP}/buzzer/status`);
+        if (response.ok) {
+          const data = await response.json();
+          const isActive = (data.buzzer && typeof data.buzzer.is_active !== 'undefined')
+            ? data.buzzer.is_active
+            : (typeof data.active !== 'undefined' ? data.active : false);
+          if (isActive && !lastBuzzerStatus) {
+            NotificationService.triggerBuzzerAlert();
+          }
+          lastBuzzerStatus = isActive;
+        } else {
+          console.log('Buzzer status fetch failed:', response.status);
+        }
+      } catch (error) {
+        console.log('Buzzer polling error:', error);
+      }
+    };
+    const buzzerInterval = setInterval(pollBuzzer, 2000);
+
     return () => {
       WiFiService.stopPolling();
       clearInterval(interval);
+      clearInterval(buzzerInterval);
     };
   }, []);
 
@@ -201,7 +224,7 @@ export default function IMUScreen() {
           style={styles.backButton} 
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="white"/>
+          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Raspberry Pi Connection</Text>
         <View style={styles.headerSpacer} />
@@ -307,6 +330,13 @@ export default function IMUScreen() {
           </LinearGradient>
         </View>
       </ScrollView>
+      {/* Debug: Test Notification Button */}
+      <TouchableOpacity
+        style={{ margin: 20, padding: 16, backgroundColor: '#ff4444', borderRadius: 12, alignItems: 'center' }}
+        onPress={() => NotificationService.triggerBuzzerAlert()}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold' }}>Test Buzzer Notification</Text>
+      </TouchableOpacity>
     </LinearGradient>
   );
 }
@@ -324,12 +354,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 15,
   },
   headerTitle: {
     fontSize: 24,

@@ -4,7 +4,7 @@ export default {
     slug: "guardit",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/icon.png",
+    icon: "./assets/guardit.png",
     userInterfaceStyle: "light",
     splash: {
       image: "./assets/splash-icon.png",

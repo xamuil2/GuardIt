@@ -147,7 +147,6 @@ class NotificationService {
         },
         trigger: null,
       });
-      
       return true;
     } catch (error) {
       return false;

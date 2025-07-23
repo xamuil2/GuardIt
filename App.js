@@ -11,6 +11,8 @@ import IMUScreen from './screens/IMUScreen';
 import CameraScreen from './screens/CameraScreen';
 import CameraStreamScreen from './screens/CameraStreamScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import ConnectionScreen from './screens/ConnectionScreen';
+import ConnectedOptionsScreen from './screens/ConnectedOptionsScreen';
 
 const Stack = createStackNavigator();
 
@@ -39,6 +41,8 @@ export default function App() {
             <Stack.Screen name="Camera" component={CameraScreen} />
             <Stack.Screen name="CameraStream" component={CameraStreamScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="Connection" component={ConnectionScreen} />
+            <Stack.Screen name="ConnectedOptions" component={ConnectedOptionsScreen} />
           </>
         ) : (
           <>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,8 +43,11 @@ export default function SignupScreen({ navigation }) {
       style={styles.container}
     >
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
         <View style={styles.logoContainer}>
-          <Ionicons name="shield-checkmark" size={40} color="#ff4444"/>
+          <Image source={require('../assets/guardit.png')} style={{ width: 70, height: 70 }} />
           <Text style={styles.logoText}>GuardIt</Text>
         </View>
         <Text style={styles.subtitle}>SECURITY SYSTEM</Text>
@@ -166,6 +169,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 60,
     paddingBottom: 20,
+  },
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    top: 60,
+    zIndex: 10,
   },
   logoContainer: {
     flexDirection: 'row',

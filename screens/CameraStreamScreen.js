@@ -1,508 +1,224 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert, Dimensions, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, FlatList, Dimensions, Image, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { Image } from 'react-native';
-import WiFiService from '../services/WiFiService';
+import NotificationService from '../services/NotificationService';
 
 const { width, height } = Dimensions.get('window');
 
 export default function CameraStreamScreen({ route }) {
   const { cameraIP: initialCameraIP } = route.params || {};
-  const [cameraIP, setCameraIP] = useState(initialCameraIP || '10.103.186.99:8080');
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [selectedCamera, setSelectedCamera] = useState('usb');
+  const [cameraIP] = useState(initialCameraIP || '10.103.139.13:8080');
+  const [selectedCamera, setSelectedCamera] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(null);
-  const [streamError, setStreamError] = useState(null);
-  const [cameraStatus, setCameraStatus] = useState(null);
-  const [frameRate, setFrameRate] = useState(0);
-  const [lastFrameTime, setLastFrameTime] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [detectionEnabled, setDetectionEnabled] = useState(false);
-  const [detectionStatus, setDetectionStatus] = useState(null);
-  const streamInterval = useRef(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const [notifications, setNotifications] = useState([]);
   const navigation = useNavigation();
 
   useEffect(() => {
-    checkConnection();
-    checkCameraStatus();
-    checkDetectionStatus();
-    
-    WiFiService.setSuspiciousActivityAlertCallback(handleSuspiciousActivityAlert);
-    
-    return () => {
-      if (streamInterval.current) {
-        clearInterval(streamInterval.current);
+    setNotifications(NotificationService.getNotifications());
+    let lastBuzzerStatus = false;
+    const pollBuzzer = async () => {
+      try {
+        const response = await fetch(`http://${cameraIP}/buzzer/status`);
+        if (response.ok) {
+          const data = await response.json();
+          const isActive = (data.buzzer && typeof data.buzzer.is_active !== 'undefined')
+            ? data.buzzer.is_active
+            : (typeof data.active !== 'undefined' ? data.active : false);
+          if (isActive && !lastBuzzerStatus) {
+            NotificationService.triggerBuzzerAlert();
+          }
+          lastBuzzerStatus = isActive;
+        } else {
+          console.log('Buzzer status fetch failed:', response.status);
+        }
+      } catch (error) {
+        console.log('Buzzer polling error:', error);
       }
-      WiFiService.setSuspiciousActivityAlertCallback(null);
     };
-  }, []);
+    const buzzerInterval = setInterval(pollBuzzer, 2000);
 
-  const checkConnection = async () => {
-    try {
-      const connected = await WiFiService.testConnection();
-      setIsConnected(connected);
-      setConnectionStatus(connected ? 'Connected' : 'Disconnected');
-    } catch (error) {
-      setIsConnected(false);
-      setConnectionStatus('Connection failed');
-    }
-  };
-
-  const checkCameraStatus = async () => {
-    try {
-      const response = await fetch(`http://${cameraIP}/status`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        let cameraStatusData = null;
-        
-        if (data.camera_status) {
-          cameraStatusData = data.camera_status;
-        } else if (data.cameras) {
-          cameraStatusData = data.cameras;
-        } else if (data.csi_available !== undefined || data.usb_available !== undefined) {
-          cameraStatusData = data;
-        } else {
-          for (const [key, value] of Object.entries(data)) {
-            if (typeof value === 'object' && value !== null) {
-              if (value.csi_available !== undefined || value.usb_available !== undefined) {
-                cameraStatusData = value;
-                break;
-              }
+    let streamInterval = null;
+    const fetchCameraFrame = async () => {
+      try {
+        let endpoint = selectedCamera === 'csi'
+          ? `http://${cameraIP}/camera/csi?quality=80&width=640&height=480&format=jpeg&t=${Date.now()}`
+          : `http://${cameraIP}/camera/usb?quality=80&width=640&height=480&format=jpeg&t=${Date.now()}`;
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.image) {
+            setCurrentFrame(`data:image/jpeg;base64,${data.image}`);
+            if (data.alertType === 'object_close' || data.alert === true) {
+              Alert.alert('Warning', 'An object is getting close to the camera!');
             }
+          } else {
+            setCurrentFrame(null);
           }
-        }
-        
-        setCameraStatus(cameraStatusData);
-        
-        if (cameraStatusData) {
         } else {
-          setCameraStatus({
-            csi_available: true,
-            usb_available: true,
-            usb_device_id: 0
-          });
+          setCurrentFrame(null);
         }
-      } else {
+      } catch (error) {
+        console.log('Camera frame fetch error:', error);
+        setCurrentFrame(null);
       }
-    } catch (error) {
-    }
-  };
-
-  const connectToCamera = async () => {
-    setIsConnecting(true);
-    setConnectionStatus('Connecting...');
-    
-    try {
-      WiFiService.setArduinoIP(cameraIP);
-      const connected = await WiFiService.testConnection();
-      
-      if (connected) {
-        setIsConnected(true);
-        setConnectionStatus('Connected');
-        await checkCameraStatus();
-      } else {
-        setConnectionStatus('Connection failed');
-        Alert.alert('Error', 'Failed to connect to Raspberry Pi camera server');
-      }
-    } catch (error) {
-      setConnectionStatus('Connection failed');
-      Alert.alert('Error', 'Connection failed: ' + error.message);
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const disconnect = () => {
-    stopStream();
-    setIsConnected(false);
-    setConnectionStatus('Disconnected');
-    setCameraStatus(null);
-    setCurrentFrame(null);
-    setStreamError(null);
-  };
-
-  const startStream = async () => {
-    if (!isConnected) {
-      Alert.alert('Error', 'Please connect to the camera server first');
-      return;
+    };
+    if (selectedCamera && isStreaming && isConnected) {
+      fetchCameraFrame();
+      streamInterval = setInterval(fetchCameraFrame, 83);
     }
 
-    setIsStreaming(true);
-    setStreamError(null);
-    setIsLoading(true);
-    
-    await fetchCameraFrame();
-    
-    streamInterval.current = setInterval(fetchCameraFrame, 200);
-  };
-
-  const stopStream = () => {
-    setIsStreaming(false);
-    setIsLoading(false);
-    if (streamInterval.current) {
-      clearInterval(streamInterval.current);
-      streamInterval.current = null;
-    }
-    setCurrentFrame(null);
-    setStreamError(null);
-  };
-
-  const fetchCameraFrame = async () => {
-    try {
-      const timestamp = Date.now();
-      let endpoint;
-      
-      if (selectedCamera === 'csi') {
-        endpoint = `http://${cameraIP}/camera/csi?quality=80&width=640&height=480&format=jpeg&t=${timestamp}`;
-      } else {
-        endpoint = `http://${cameraIP}/camera/usb?quality=80&width=640&height=480&format=jpeg&t=${timestamp}`;
-      }
-      
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.success && data.image) {
-          const imageUri = `data:image/jpeg;base64,${data.image}`;
-          setCurrentFrame(imageUri);
-          setIsLoading(false);
-          
-          const currentTime = Date.now();
-          if (lastFrameTime > 0) {
-            const timeDiff = currentTime - lastFrameTime;
-            const fps = Math.round(1000 / timeDiff);
-            setFrameRate(fps);
+    let lastSuspicious = false;
+    const pollSuspicious = async () => {
+      try {
+        const response = await fetch(`http://${cameraIP}/detection/status`);
+        if (response.ok) {
+          const data = await response.json();
+          const suspicious = data.suspicious === true || (data.status && data.status.suspicious === true) || (data.enabled && data.person_detected === true);
+          if (suspicious && !lastSuspicious) {
+            NotificationService.triggerSuspiciousActivityAlert();
           }
-          setLastFrameTime(currentTime);
+          lastSuspicious = suspicious;
         } else {
-          setStreamError(data.error || 'Failed to get camera frame');
-          setIsLoading(false);
+          console.log('Suspicious detection fetch failed:', response.status);
         }
-      } else {
-        setStreamError(`HTTP ${response.status}: ${response.statusText}`);
-        setIsLoading(false);
+      } catch (error) {
+        console.log('Suspicious detection polling error:', error);
       }
-      
-    } catch (error) {
-      setStreamError('Failed to fetch camera frame: ' + error.message);
-      setIsLoading(false);
-    }
-  };
+    };
+    const suspiciousInterval = setInterval(pollSuspicious, 2000);
 
-  const switchCamera = () => {
-    const newCamera = selectedCamera === 'csi' ? 'usb' : 'csi';
-    setSelectedCamera(newCamera);
-    
-    if (isStreaming) {
-      stopStream();
-      setTimeout(() => startStream(), 500);
-    }
-  };
+    return () => {
+      clearInterval(buzzerInterval);
+      if (streamInterval) clearInterval(streamInterval);
+      clearInterval(suspiciousInterval);
+    };
+  }, [cameraIP, selectedCamera, isStreaming, isConnected]);
 
-  const toggleStream = () => {
-    if (isStreaming) {
-      stopStream();
-    } else {
-      startStream();
+  useEffect(() => {
+    if (selectedCamera) {
+      setIsStreaming(true);
+      return () => setIsStreaming(false);
     }
-  };
+  }, [selectedCamera]);
 
-  const checkDetectionStatus = async () => {
-    try {
-      const status = await WiFiService.getDetectionStatus();
-      setDetectionStatus(status);
-      if (status && status.enabled !== undefined) {
-        setDetectionEnabled(status.enabled);
-      }
-    } catch (error) {
-    }
-  };
-
-  const enableDetection = async () => {
-    try {
-      const success = await WiFiService.enableDetection();
-      if (success) {
-        setDetectionEnabled(true);
-        Alert.alert('Detection Enabled', 'Suspicious activity detection is now active');
-      } else {
-        Alert.alert('Error', 'Failed to enable detection');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to enable detection: ' + error.message);
-    }
-  };
-
-  const disableDetection = async () => {
-    try {
-      const success = await WiFiService.disableDetection();
-      if (success) {
-        setDetectionEnabled(false);
-        Alert.alert('Detection Disabled', 'Suspicious activity detection is now inactive');
-      } else {
-        Alert.alert('Error', 'Failed to disable detection');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to disable detection: ' + error.message);
-    }
-  };
-
-  const toggleDetection = () => {
-    if (detectionEnabled) {
-      disableDetection();
-    } else {
-      enableDetection();
-    }
-  };
-
-  const handleSuspiciousActivityAlert = (alertData) => {
-    Alert.alert(
-      alertData.title,
-      alertData.message,
-      [
-        {
-          text: 'OK',
-          style: 'default',
-          onPress: () => {
-          }
+  const renderNotification = ({ item }) => (
+    <TouchableOpacity
+      style={[styles.notificationItem, !item.read && styles.unreadNotification]}
+    >
+      <LinearGradient
+        colors={item.read ? 
+          ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)'] : 
+          ['rgba(255, 68, 68, 0.15)', 'rgba(255, 68, 68, 0.05)']
         }
-      ],
-      { cancelable: false }
-    );
-  };
+        style={styles.notificationGradient}
+      >
+        <View style={styles.notificationHeader}>
+          <View style={styles.notificationIcon}>
+            <Ionicons 
+              name={
+                item.type === 'led_alert' ? 'warning' : 
+                item.type === 'suspicious_activity' ? 'eye' : 
+                'notifications'
+              } 
+              size={24} 
+              color={item.read ? '#888' : '#ff4444'}
+            />
+            {!item.read && <View style={styles.unreadDot} />}
+          </View>
+          <View style={styles.notificationContent}>
+            <Text style={[styles.notificationTitle, item.read && styles.readText]}>
+              {item.title}
+            </Text>
+            <Text style={[styles.notificationBody, item.read && styles.readText]}>
+              {item.body}
+            </Text>
+            <View style={styles.notificationMeta}>
+              <Text style={[styles.notificationTime, item.read && styles.readText]}>
+                {NotificationService.formatTimestamp(item.timestamp)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
 
   return (
-    <View style={styles.container}>
       <LinearGradient
-        colors={['#1a1a2e', '#16213e', '#0f3460']}
-        style={styles.gradient}
+        colors={['#0a0a0a', '#1a1a1a', '#2d1b1b']}
+      style={styles.container}
       >
+      {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Raspberry Pi Camera Stream</Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Camera Stream</Text>
+          </View>
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {}
-          <View style={styles.statusSection}>
-            <LinearGradient
-              colors={isConnected ? ['rgba(68, 255, 68, 0.2)', 'rgba(68, 255, 68, 0.1)'] : ['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
-              style={styles.statusContainer}
-            >
-              <View style={styles.statusIconContainer}>
-                <Ionicons 
-                  name={isConnected ? "wifi" : "wifi-outline"} 
-                  size={40} 
-                  color={isConnected ? "#44ff44" : "#ff4444"}
-                />
-              </View>
-              <Text style={styles.statusTitle}>
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </Text>
-              <Text style={styles.statusSubtitle}>{connectionStatus}</Text>
-              
-              {!isConnected && (
+      {/* Camera Selector */}
+      <View style={styles.cameraSelectorRow}>
                 <TouchableOpacity 
-                  style={[styles.connectButton, isConnecting && styles.connectingButton]} 
-                  onPress={connectToCamera}
-                  disabled={isConnecting}
-                >
-                  <LinearGradient
-                    colors={isConnecting ? ['#666666', '#888888'] : ['#44ff44', '#66ff66']}
-                    style={styles.buttonGradient}
-                  >
-                    <Ionicons name="wifi" size={20} color="white"/>
-                    <Text style={styles.buttonText}>
-                      {isConnecting ? 'Connecting...' : 'Connect to Camera Server'}
-                    </Text>
-                  </LinearGradient>
+          style={[styles.cameraSelectorButton, selectedCamera === 'usb' && styles.cameraSelectorButtonActive]}
+          onPress={() => setSelectedCamera('usb')}
+        >
+          <Text style={[styles.cameraSelectorText, selectedCamera === 'usb' && styles.cameraSelectorTextActive]}>Front</Text>
                 </TouchableOpacity>
-              )}
-              
-              {isConnected && (
-                <TouchableOpacity style={styles.disconnectButton} onPress={disconnect}>
-                  <LinearGradient
-                    colors={['#ff4444', '#ff6666']}
-                    style={styles.buttonGradient}
-                  >
-                    <Ionicons name="close" size={20} color="white"/>
-                    <Text style={styles.buttonText}>Disconnect</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </LinearGradient>
-          </View>
-
-          {}
-          {cameraStatus && (
-            <View style={styles.cameraStatusContainer}>
-              <Text style={styles.sectionTitle}>📹 Camera Status</Text>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>CSI Camera:</Text>
-                <Text style={[styles.statusValue, { color: cameraStatus.csi_available ? '#4CAF50' : '#f44336' }]}>
-                  {cameraStatus.csi_available ? 'Available' : 'Not Available'}
-                </Text>
-              </View>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>USB Camera:</Text>
-                <Text style={[styles.statusValue, { color: cameraStatus.usb_available ? '#4CAF50' : '#f44336' }]}>
-                  {cameraStatus.usb_available ? `Available (ID: ${cameraStatus.usb_device_id})` : 'Not Available'}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {}
-          {isConnected && (
-            <View style={styles.cameraSelectionContainer}>
-              <Text style={styles.sectionTitle}>📸 Select Camera</Text>
-              <View style={styles.cameraButtons}>
-                <TouchableOpacity 
-                  style={[styles.cameraButton, selectedCamera === 'csi' && styles.activeCameraButton]}
-                  onPress={() => setSelectedCamera('csi')}
-                  disabled={!cameraStatus?.csi_available}
-                >
-                  <Ionicons 
-                    name="camera" 
-                    size={24} 
-                    color={selectedCamera === 'csi' ? '#fff' : '#666'} 
-                  />
-                  <Text style={[styles.cameraButtonText, selectedCamera === 'csi' && styles.activeCameraButtonText]}>
-                    CSI Camera
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.cameraButton, selectedCamera === 'usb' && styles.activeCameraButton]}
-                  onPress={() => setSelectedCamera('usb')}
-                  disabled={!cameraStatus?.usb_available}
-                >
-                  <Ionicons 
-                    name="videocam" 
-                    size={24} 
-                    color={selectedCamera === 'usb' ? '#fff' : '#666'} 
-                  />
-                  <Text style={[styles.cameraButtonText, selectedCamera === 'usb' && styles.activeCameraButtonText]}>
-                    USB Camera
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {}
-          {isConnected && (
-            <View style={styles.streamControlsContainer}>
-              <Text style={styles.sectionTitle}>🎥 Stream Controls</Text>
-              <TouchableOpacity 
-                style={[styles.streamButton, isStreaming && styles.stopButton]} 
-                onPress={toggleStream}
-              >
-                <LinearGradient
-                  colors={isStreaming ? ['#ff4444', '#ff6666'] : ['#44ff44', '#66ff66']}
-                  style={styles.buttonGradient}
-                >
-                  <Ionicons name={isStreaming ? "stop" : "play"} size={20} color="white"/>
-                  <Text style={styles.buttonText}>
-                    {isStreaming ? 'STOP STREAM' : 'START STREAM'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {isStreaming && (
-                <View style={styles.streamInfo}>
-                  <Text style={styles.streamInfoText}>
-                    Camera: {selectedCamera.toUpperCase()} | FPS: {frameRate}
-                  </Text>
+                  <TouchableOpacity 
+          style={[styles.cameraSelectorButton, selectedCamera === 'csi' && styles.cameraSelectorButtonActive]}
+                    onPress={() => setSelectedCamera('csi')}
+        >
+          <Text style={[styles.cameraSelectorText, selectedCamera === 'csi' && styles.cameraSelectorTextActive]}>Back</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
-            </View>
-          )}
 
-          {}
-          {isConnected && (
-            <View style={styles.detectionControlsContainer}>
-              <Text style={styles.sectionTitle}>🔍 Suspicious Activity Detection</Text>
-              <TouchableOpacity 
-                style={[styles.detectionButton, detectionEnabled && styles.detectionActiveButton]} 
-                onPress={toggleDetection}
-              >
-                <LinearGradient
-                  colors={detectionEnabled ? ['#ff6b35', '#ff8c42'] : ['#666666', '#888888']}
-                  style={styles.buttonGradient}
-                >
-                  <Ionicons name={detectionEnabled ? "eye" : "eye-off"} size={20} color="white"/>
-                  <Text style={styles.buttonText}>
-                    {detectionEnabled ? 'DETECTION ACTIVE' : 'ENABLE DETECTION'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              
-              {detectionStatus && (
-                <View style={styles.detectionInfo}>
-                  <Text style={styles.detectionInfoText}>
-                    Status: {detectionStatus.enabled ? 'Active' : 'Inactive'}
-                    {detectionStatus.last_detection && ` | Last: ${new Date(detectionStatus.last_detection).toLocaleTimeString()}`}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
-          {}
-          <View style={styles.cameraContainer}>
-            {currentFrame ? (
-              <Image
-                source={{ uri: currentFrame }}
-                style={styles.cameraImage}
-                resizeMode="contain"
-                onError={(error) => {
-                  setStreamError('Failed to load camera image');
-                }}
-              />
-            ) : (
-              <View style={styles.placeholderContainer}>
-                <Ionicons name="camera" size={64} color="#666" />
-                <Text style={styles.placeholderText}>
-                  {isLoading ? 'Loading camera feed...' : 
-                   isStreaming ? 'Connecting to camera...' : 'Camera not connected'}
-                </Text>
-                {streamError && (
-                  <Text style={styles.errorText}>{streamError}</Text>
-                )}
-              </View>
-            )}
+      {/* Camera Stream Area */}
+      <View style={styles.cameraStreamBox}>
+        {selectedCamera && isStreaming && isConnected && currentFrame ? (
+          <Image source={{ uri: currentFrame }} style={styles.cameraImage} resizeMode="contain" />
+        ) : (
+          <View style={styles.cameraStreamPlaceholder}>
+            <Ionicons name="videocam" size={48} color="#888" />
+            <Text style={styles.cameraStreamPlaceholderText}>
+              {selectedCamera ? 'Camera Stream' : 'Select a camera to view stream'}
+            </Text>
           </View>
-        </ScrollView>
+        )}
+      </View>
+
+      {/* Notifications Section (bottom half, scrollable) */}
+      <View style={styles.notificationsSection}>
+        <Text style={styles.notificationsTitle}>Notifications</Text>
+        <FlatList
+          data={notifications}
+          renderItem={renderNotification}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={true}
+          contentContainerStyle={styles.notificationsList}
+        />
+      </View>
       </LinearGradient>
-    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-  },
-  gradient: {
     flex: 1,
   },
   header: {
@@ -511,207 +227,169 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 20,
+    backgroundColor: '#1a1a1a',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 68, 68, 0.15)',
   },
   backButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
   },
-  headerTitle: {
+  headerContent: {
     flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 40,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  statusSection: {
-    marginBottom: 20,
-  },
-  statusContainer: {
-    borderRadius: 20,
-    padding: 20,
     alignItems: 'center',
   },
-  statusIconContainer: {
-    marginBottom: 10,
-  },
-  statusTitle: {
+  headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
-    marginBottom: 5,
+    letterSpacing: 1,
+    textShadowColor: 'rgba(255, 68, 68, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
-  statusSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 20,
+  headerSpacer: {
+    width: 44,
   },
-  connectButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  connectingButton: {
-    opacity: 0.7,
-  },
-  disconnectButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  buttonGradient: {
+  cameraSelectorRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  cameraStatusContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 15,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 18,
     marginBottom: 10,
+    gap: 16,
   },
-  statusLabel: {
-    fontSize: 16,
-    color: '#cccccc',
+  cameraSelectorButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 32,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    marginHorizontal: 8,
   },
-  statusValue: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cameraSelectionContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 20,
-  },
-  cameraButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  cameraButton: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    opacity: 0.5,
-  },
-  activeCameraButton: {
-    backgroundColor: '#007AFF',
-    opacity: 1,
-  },
-  cameraButtonText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 5,
-  },
-  activeCameraButtonText: {
-    color: '#fff',
-  },
-  streamControlsContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 20,
-  },
-  streamButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  stopButton: {
+  cameraSelectorButtonActive: {
     backgroundColor: '#ff4444',
   },
-  testButton: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 10,
+  cameraSelectorText: {
+    color: '#aaa',
+    fontSize: 16,
+    fontWeight: '600',
   },
-  streamInfo: {
+  cameraSelectorTextActive: {
+    color: 'white',
+  },
+  cameraStreamBox: {
+    height: height * 0.28,
+    marginHorizontal: 20,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center',
-  },
-  streamInfoText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  cameraContainer: {
-    backgroundColor: '#000',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 20,
-    minHeight: 300,
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   cameraImage: {
     width: '100%',
-    height: 300,
-    borderRadius: 12,
+    height: '100%',
+    borderRadius: 18,
   },
-  placeholderContainer: {
+  cameraStreamPlaceholder: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    minHeight: 300,
-    padding: 20,
+    justifyContent: 'center',
   },
-  placeholderText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 16,
-    textAlign: 'center',
+  cameraStreamPlaceholderText: {
+    color: '#888',
+    fontSize: 18,
+    marginTop: 8,
   },
-  errorText: {
+  notificationsSection: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingHorizontal: 10,
+    marginTop: 6,
+  },
+  notificationsTitle: {
     color: '#ff4444',
-    fontSize: 14,
-    marginTop: 10,
-    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    marginLeft: 6,
   },
-  detectionControlsContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 20,
+  notificationsList: {
+    paddingBottom: 20,
   },
-  detectionButton: {
+  notificationItem: {
+    marginBottom: 12,
     borderRadius: 15,
     overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.15)',
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  unreadNotification: {
+    borderWidth: 2,
+    borderColor: '#ff4444',
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
+  },
+  notificationGradient: {
+    padding: 16,
+    backgroundColor: 'transparent',
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  notificationIcon: {
+    marginRight: 15,
+    position: 'relative',
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ff4444',
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 5,
+    letterSpacing: 0.5,
+  },
+  notificationBody: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
     marginBottom: 10,
+    lineHeight: 20,
   },
-  detectionActiveButton: {
-    backgroundColor: '#ff6b35',
-  },
-  detectionInfo: {
+  notificationMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  detectionInfoText: {
-    color: '#fff',
-    fontSize: 14,
+  notificationTime: {
+    fontSize: 12,
+    color: '#ff4444',
+    fontWeight: 'bold',
+  },
+  readText: {
+    color: 'rgba(255, 255, 255, 0.5)',
   },
 });
+
+

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, Alert, Dimensions, Linking, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, Alert, Dimensions, Linking, TextInput, Image } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 import * as Notifications from 'expo-notifications';
@@ -56,160 +56,67 @@ export default function HomeScreen() {
       colors={['#0a0a0a', '#1a1a1a', '#2d1b1b']}
       style={styles.container}
     >
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <View style={styles.logoBackground}>
-            <Ionicons name="shield-checkmark" size={48} color="#ff4444"/>
+      <View style={styles.centeredContent}>
+        {/* Logo with glow */}
+        <View style={styles.logoGlowWrapper}>
+          <Image 
+            source={require('../assets/guardit.png')} 
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           </View>
           <View style={styles.logoTextContainer}>
             <Text style={styles.logoText}>GuardIt</Text>
             <Text style={styles.subtitle}>SECURITY SYSTEM</Text>
-          </View>
-        </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.welcomeContainer}>
+        {/* Welcome Card */}
+        <View style={styles.welcomeCard}>
           <Text style={styles.welcomeTitle}>Welcome Back!</Text>
           <Text style={styles.welcomeSubtitle}>Your security system is active and monitoring</Text>
         </View>
 
-        <View style={styles.alertSection}>
-          <LinearGradient
-            colors={['rgba(255, 68, 68, 0.2)', 'rgba(255, 68, 68, 0.1)']}
-            style={styles.alertContainer}
-          >
-            <View style={styles.alertIconContainer}>
-              <Ionicons name="alert-circle" size={40} color="#ff4444"/>
-            </View>
-            <Text style={styles.alertTitle}>GuardIt Security Alert</Text>
-            <Text style={styles.alertSubtitle}>System Status: Active & Monitoring</Text>
-            <View style={styles.alertStatusRow}>
-              <View style={styles.statusIndicator}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Live</Text>
-              </View>
-              <View style={styles.statusIndicator}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Protected</Text>
-              </View>
-              <View style={styles.statusIndicator}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>24/7</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-
-        {notification && (
-          <View style={styles.notificationContainer}>
-            <Text style={styles.notificationTitle}>Latest Security Alert</Text>
-            <LinearGradient
-              colors={['rgba(255, 68, 68, 0.25)', 'rgba(255, 68, 68, 0.15)']}
-              style={styles.notificationBox}
-            >
-              <View style={styles.notificationIcon}>
-                <Ionicons name="warning" size={28} color="#ff4444"/>
-              </View>
-              <View style={styles.notificationContent}>
-                <Text style={styles.notificationText}>{notification.request.content.title}</Text>
-                <Text style={styles.notificationBody}>{notification.request.content.body}</Text>
-                <Text style={styles.notificationTime}>Just now</Text>
-              </View>
-            </LinearGradient>
-          </View>
-        )}
-
-        <View style={styles.statusContainer}>
-          <View style={styles.statusCard}>
-            <LinearGradient
-              colors={['rgba(255, 68,68, 0.15)', 'rgba(255, 68,68, 0.25)']}
-              style={styles.cardGradient}
-            >
-              <View style={styles.cardIconContainer}>
-                <Ionicons name="videocam" size={36} color="#ff4444"/>
-              </View>
-              <Text style={styles.cardTitle}>Live Video</Text>
-              <Text style={styles.cardSubtitle}>Enter camera server IP</Text>
-              
-              <View style={styles.ipInputContainer}>
-                <TextInput
-                  style={styles.ipInput}
-                  value={cameraIP}
-                  onChangeText={setCameraIP}
-                  placeholder="192.168.1.100:8090"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  keyboardType="url"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-              
-              <TouchableOpacity style={styles.cardButton} onPress={openCameraStream}>
-                <Text style={styles.cardButtonText}>VIEW STREAM</Text>
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
-
-          <View style={styles.statusCard}>
-            <LinearGradient
-              colors={['rgba(255, 68,68, 0.15)', 'rgba(255, 68,68, 0.25)']}
-              style={styles.cardGradient}
-            >
-              <View style={styles.cardIconContainer}>
-                <Ionicons name="notifications" size={36} color="#ff4444"/>
-                {unreadCount > 0 && (
-                  <View style={styles.unreadBadge}>
-                    <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.cardTitle}>Notifications</Text>
-              <Text style={styles.cardSubtitle}>
-                {unreadCount > 0 ? `${unreadCount} unread alert${unreadCount !== 1 ? 's' : ''}` : 'Alert system ready'}
-              </Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('Notifications')}>
-                <Text style={styles.cardButtonText}>SEE NOTIFICATIONS</Text>
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
-
-          <View style={styles.statusCard}>
-            <LinearGradient
-              colors={['rgba(255, 68,68, 0.15)', 'rgba(255, 68,68, 0.25)']}
-              style={styles.cardGradient}
-            >
-              <View style={styles.cardIconContainer}>
-                <Ionicons name="speedometer" size={36} color="#ff4444"/>
-              </View>
-              <Text style={styles.cardTitle}>Raspberry Pi Connection</Text>
-              <Text style={styles.cardSubtitle}>Raspberry Pi motion detection</Text>
-              <TouchableOpacity style={styles.cardButton} onPress={() => navigation.navigate('IMU')}>
-                <Text style={styles.cardButtonText}>CONNECT RASPBERRY PI</Text>
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        {/* Connect Devices Button */}
+        <TouchableOpacity
+          style={({ pressed }) => [styles.connectButton, { marginTop: 24 }, pressed && styles.connectButtonPressed]}
+          onPress={() => navigation.navigate('Connection')}
+          activeOpacity={0.85}
+        >
           <LinearGradient
             colors={['#ff4444', '#ff6666']}
-            style={styles.logoutGradient}
+            style={styles.connectButtonGradient}
           >
-            <Ionicons name="log-out-outline" size={20} color="white"/>
-            <Text style={styles.logoutText}>SECURE LOGOUT</Text>
+            <Ionicons name="wifi" size={20} color="white" style={{ marginRight: 8 }} />
+            <Text style={styles.connectButtonText}>Connect Devices</Text>
           </LinearGradient>
         </TouchableOpacity>
-      </ScrollView>
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>24/7 Security Monitoring Active</Text>
-        <View style={styles.securityIcons}>
-          <Ionicons name="shield" size={16} color="#ff4444"/>
-          <Ionicons name="lock-closed" size={16} color="#ff4444"/>
-          <Ionicons name="eye" size={16} color="#ff4444"/>
+        {/* Secure Logout Button (now absolutely positioned) */}
+        <View style={styles.logoutButtonWrapper} pointerEvents="box-none">
+          <TouchableOpacity
+            style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutButtonPressed]}
+            onPress={handleLogout}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={['#ff4444', '#ff6666']}
+              style={styles.logoutGradient}
+            >
+              <Text style={styles.logoutText}>SECURE LOGOUT</Text>
+            </LinearGradient>
+              </TouchableOpacity>
         </View>
       </View>
+      {/* Footer with fade */}
+          <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.5)']}
+        style={styles.footerFade}
+        pointerEvents="none"
+      >
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>24/7 Security Monitoring Active</Text>
+        </View>
+      </LinearGradient>
     </LinearGradient>
   );
 }
@@ -247,81 +154,130 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
-  header: {
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    paddingTop: 70,
   },
-  logoContainer: {
-    flexDirection: 'row',
+  logoGlowWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-    paddingHorizontal: 20,
+    marginBottom: 0,
   },
-  logoBackground: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 68, 68, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 68, 68, 0.3)',
+  logoGlow: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 68, 68, 0.25)',
     shadowColor: '#ff4444',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 30,
+  },
+  logoCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3,
+    borderColor: '#ff4444',
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
   },
   logoTextContainer: {
-    marginLeft: 20,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 0,
   },
   logoText: {
-    fontSize: 36,
+    fontSize: 38,
     fontWeight: 'bold',
     color: 'white',
-    letterSpacing: 2,
-    textShadowColor: 'rgba(255, 68, 68, 0.5)',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(255, 68, 68, 0.3)',
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    textShadowRadius: 6,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#ff4444',
-    fontWeight: '700',
-    letterSpacing: 4,
-    marginTop: 4,
-    textShadowColor: 'rgba(255, 68, 68, 0.3)',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    marginTop: 2,
+    textShadowColor: 'rgba(255, 68, 68, 0.15)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
-  welcomeContainer: {
+  welcomeCard: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 18,
+    paddingVertical: 28,
+    paddingHorizontal: 32,
     alignItems: 'center',
-    marginBottom: 40,
-    paddingTop: 10,
+    marginBottom: 56,
+    marginTop: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
   },
   welcomeTitle: {
     fontSize: 32,
     fontWeight: 'bold',
     color: 'white',
-    marginBottom: 12,
-    textAlign: 'center',
+    marginBottom: 10,
+    textShadowColor: 'rgba(255, 68, 68, 0.25)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
   welcomeSubtitle: {
-    fontSize: 16,
-    color: '#ccc',
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 24,
+  },
+  connectButton: {
+    borderRadius: 40,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+    width: 260,
+    alignSelf: 'center',
+    marginTop: "80",
+    marginBottom: 40,
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.13,
+    shadowRadius: 12,
+  },
+  connectButtonPressed: {
+    borderColor: '#fff',
+    shadowColor: '#fff',
+    shadowOpacity: 0.18,
+    opacity: 0.93,
+    transform: [{ scale: 0.97 }],
+  },
+  connectButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 22,
+    borderRadius: 40,
+  },
+  connectButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    letterSpacing: 0.5,
+  },
+  connectSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  connectArrow: {
+    marginLeft: 'auto',
   },
   statusContainer: {
     marginBottom: 40,
@@ -516,45 +472,91 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#ccc',
   },
+  logoutButtonWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 90,
+    alignItems: 'center',
+    zIndex: 10,
+    pointerEvents: 'box-none',
+    marginTop: 40,
+  },
   logoutButton: {
-    marginBottom: 40,
-    borderRadius: 16,
+    borderRadius: 40,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    width: '92%',
+    minWidth: 260,
+    maxWidth: 400,
+    alignSelf: 'center',
+    marginBottom: 0,
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.13,
+    shadowRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  logoutButtonPressed: {
+    shadowColor: '#fff',
+    shadowOpacity: 0.18,
+    opacity: 0.93,
+    transform: [{ scale: 0.98 }],
   },
   logoutGradient: {
-    flexDirection: 'row',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
+    borderRadius: 40,
   },
   logoutText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 10,
+    fontSize: 15,
+    fontWeight: '600',
     letterSpacing: 1,
+  },
+  footerFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 90,
+    justifyContent: 'flex-end',
   },
   footer: {
     alignItems: 'center',
-    paddingBottom: Platform.OS === 'ios' ? 40 : 30,
-    paddingTop: 20,
+    marginBottom: 18,
   },
   footerText: {
-    color: '#666',
+    color: 'rgba(255,255,255,0.35)',
     fontSize: 13,
-    marginBottom: 12,
-    fontWeight: '500',
+    letterSpacing: 0.5,
   },
   securityIcons: {
     flexDirection: 'row',
     gap: 20,
+  },
+  logoCircleShadow: {
+    shadowColor: '#ff4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3,
+    borderColor: '#ff4444',
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
+  },
+  logoImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
   },
 });
