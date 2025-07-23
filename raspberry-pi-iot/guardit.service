@@ -1,0 +1,27 @@
+[Unit]
+Description=GuardIt IMU WiFi Server
+After=network.target
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=guardit
+Group=guardit
+WorkingDirectory=/home/guardit/Documents/GuardIt/raspberry-pi-iot
+ExecStart=/usr/bin/python3 /home/guardit/Documents/GuardIt/raspberry-pi-iot/imu_wifi_server.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment=PYTHONPATH=/home/guardit/Documents/GuardIt/raspberry-pi-iot
+Environment=PYTHONUNBUFFERED=1
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
