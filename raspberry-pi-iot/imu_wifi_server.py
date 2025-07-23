@@ -41,8 +41,8 @@ LED_RED_PIN = 18
 LED_GREEN_PIN = 19
 LED_BLUE_PIN = 20
 
-FALL_THRESHOLD = 20.0
-MOVEMENT_THRESHOLD = 5.0
+FALL_THRESHOLD = 25.0
+MOVEMENT_THRESHOLD = 7.0
 DATA_INTERVAL = 100
 NOTIFICATION_COOLDOWN = 2000
 
@@ -282,52 +282,43 @@ class CameraManager:
         
         logger.info("🔍 Detecting cameras...")
         
-        self.csi_available = False
+        # Test CSI camera using libcamera (modern Pi camera interface)
+        logger.info("🔍 Testing CSI camera with libcamera...")
         try:
+            # Use rpicam-still to check if CSI camera is available
             result = subprocess.run(
-                ["which", "libcamera-still"], 
-                capture_output=True, text=True, timeout=2
+                ['rpicam-still', '--list-cameras'], 
+                capture_output=True, text=True, timeout=5
             )
-            if result.returncode == 0:
-                result = subprocess.run(
-                    ["libcamera-hello", "--list-cameras"], 
-                    capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    camera_detected = any(name in result.stdout.lower() for name in [
-                        'imx219', 'ov5647', 'camera', 'csi', 'raspberry'
-                    ])
-                    if camera_detected:
-                        self.csi_available = True
-                        logger.info("✅ CSI Camera detected via libcamera-hello")
-                    else:
-                        logger.warning("❌ CSI Camera not found in libcamera-hello output")
-                else:
-                    logger.warning("❌ libcamera-hello failed")
+            if result.returncode == 0 and 'imx219' in result.stdout.lower():
+                self.csi_available = True
+                logger.info("✅ CSI Camera (IMX219) detected via libcamera")
             else:
-                logger.warning("❌ libcamera-still not available")
-                
-            if not self.csi_available:
-                logger.info("🔍 Trying CSI camera test capture...")
-                test_result = self.capture_csi_image(width=160, height=120)
-                if test_result[0]:
-                    self.csi_available = True
-                    logger.info("✅ CSI Camera detected via test capture")
-                    
-        except Exception as e:
-            logger.warning(f"❌ CSI Camera detection failed: {e}")
+                logger.info("⚠️ CSI Camera not detected via libcamera")
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            logger.info(f"⚠️ CSI Camera libcamera test failed: {e}")
         
-        for device_id in [0, 1, 2]:
-            cap = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret and frame is not None:
-                    self.usb_available = True
-                    self.usb_device_id = device_id
-                    logger.info(f"✅ USB Camera detected on device {device_id}")
-                    cap.release()
-                    break
-            cap.release()
+        # Detect USB camera using OpenCV V4L2
+        logger.info("🔍 Testing USB camera with OpenCV...")
+        for device_id in [0, 1, 2, 3, 4]:  # Test all possible devices
+            try:
+                cap = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
+                if cap.isOpened():
+                    # Set test resolution and try to get a frame
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                    
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        self.usb_available = True
+                        self.usb_device_id = device_id
+                        logger.info(f"✅ USB Camera detected on device {device_id}")
+                        cap.release()
+                        break
+                cap.release()
+            except Exception as e:
+                logger.debug(f"USB camera test device {device_id} failed: {e}")
+                continue
         
         if not self.usb_available:
             logger.warning("❌ No USB Camera detected")
@@ -356,22 +347,24 @@ class CameraManager:
 
         cap = cv2.VideoCapture(self.usb_device_id, cv2.CAP_V4L2)
         try:
-            # Optimized settings for low latency
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 160)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal buffer
+            # Ultra-optimized settings for minimum latency
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Slightly larger for better quality
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Single frame buffer
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
-            cap.set(cv2.CAP_PROP_FPS, 60)  # Higher FPS
-            cap.set(cv2.CAP_PROP_EXPOSURE, -6)  # Faster exposure
+            cap.set(cv2.CAP_PROP_FPS, 30)  # Optimized FPS
+            cap.set(cv2.CAP_PROP_EXPOSURE, -7)  # Very fast exposure
+            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Auto exposure off
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Auto focus off
             
             frame_count = 0
-            detection_interval = 15  # Reduced detection frequency for speed
+            detection_interval = 20  # Reduce detection frequency for speed
             
             while self.capture_running and cap.isOpened():
                 try:
-                    # Skip buffered frames for real-time
-                    for _ in range(2):
-                        cap.grab()
+                    # Aggressive frame skipping for real-time performance
+                    for _ in range(3):
+                        cap.grab()  # Skip buffered frames
                     ret, frame = cap.retrieve()
                     
                     if ret and frame is not None:
@@ -391,108 +384,150 @@ class CameraManager:
                         
                         frame_to_encode = processed_frame if self.detection_enabled else frame
                         
-                        # Higher compression for speed
-                        _, buffer = cv2.imencode('.jpg', frame_to_encode, [cv2.IMWRITE_JPEG_QUALITY, 30])
+                        # Ultra-fast JPEG encoding
+                        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 70, cv2.IMWRITE_JPEG_OPTIMIZE, 1]
+                        _, buffer = cv2.imencode('.jpg', frame_to_encode, encode_params)
                         
                         with self.frame_lock:
                             self.latest_frame = buffer.tobytes()
                         
                         frame_count += 1
                     
-                    time.sleep(0.001)  # Minimal sleep for maximum speed
+                    # No sleep for maximum speed
                 except Exception as e:
-                    time.sleep(0.01)
+                    time.sleep(0.005)  # Minimal sleep on error
         
         except Exception as e:
             logger.error(f"USB capture setup error: {e}")
-
-            print("run")
-
         finally:
             if cap.isOpened():
                 cap.release()
 
     def _background_csi_capture(self):
+        """HYBRID CSI capture - Use rpicam-jpeg for better reliability and speed"""
+        frame_count = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 3
         
-        logger.info("🎥 Background CSI capture started")
-        
-        cmd = [
-            "libcamera-vid",
-            "-o", "-",
-            "-t", "0",
-            "--width", "160",
-            "--height", "120",
-            "--framerate", "60",  # Much higher FPS
-            "--codec", "mjpeg",
-            "-n",
-            "--flush",
-            "--immediate",
-            "--buffer-count", "1",  # Minimal buffering
-            "--denoise", "cdn_off",
-            "--quality", "60"  # Good quality/speed balance
-        ]
-        
-        process = None
         try:
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            logger.info("✅ libcamera-vid process started")
+            logger.info("🔧 HYBRID CSI capture started - testing reliable approaches")
             
-            frame_buffer = b""
-            frame_count = 0
+            start_time = time.time()
+            last_performance_log = start_time
             
-            while self.csi_capture_running and process.poll() is None:
+            # First, test if basic capture works
+            try:
+                test_result = subprocess.run([
+                    'rpicam-still', '--list-cameras'
+                ], capture_output=True, text=True, timeout=3)
+                
+                if test_result.returncode != 0:
+                    logger.error("❌ CSI camera not available")
+                    return
+                    
+                logger.info("✅ CSI camera confirmed available")
+            except Exception as e:
+                logger.error(f"❌ CSI camera test failed: {e}")
+                return
+            
+            # Try multiple command approaches for reliability
+            command_variants = [
+                # Approach 1: Standard rpicam-still
+                [
+                    'rpicam-still',
+                    '--immediate',
+                    '--nopreview', 
+                    '--width', '320',
+                    '--height', '240',
+                    '--quality', '70',
+                    '--timeout', '200',
+                    '--output', '-'
+                ],
+                # Approach 2: Faster, lower quality  
+                [
+                    'rpicam-still',
+                    '--immediate',
+                    '--nopreview',
+                    '--width', '240',
+                    '--height', '180', 
+                    '--quality', '50',
+                    '--timeout', '100',
+                    '--output', '-'
+                ],
+                # Approach 3: Even simpler
+                [
+                    'rpicam-still',
+                    '--nopreview',
+                    '--width', '160',
+                    '--height', '120',
+                    '--quality', '40',
+                    '--timeout', '50',
+                    '--output', '-'
+                ]
+            ]
+            
+            current_cmd_index = 0
+            cmd = command_variants[current_cmd_index]
+            
+            while self.csi_capture_running:
                 try:
-                    chunk = process.stdout.read(8192)  # Larger buffer for better throughput
-                    if not chunk:
-                        break
+                    current_time = time.time()
                     
-                    frame_buffer += chunk
+                    # Try capture with current command
+                    result = subprocess.run(cmd, capture_output=True, timeout=1.0)
                     
-                    # Process multiple frames in buffer if available
-                    while True:
-                        start_marker = b'\xff\xd8'
-                        end_marker = b'\xff\xd9'
+                    if result.returncode == 0 and result.stdout:
+                        consecutive_errors = 0
+                        jpeg_data = result.stdout
                         
-                        start_idx = frame_buffer.find(start_marker)
-                        if start_idx == -1:
-                            break
-                            
-                        end_idx = frame_buffer.find(end_marker, start_idx)
-                        if end_idx == -1:
-                            break
-                            
-                        jpeg_frame = frame_buffer[start_idx:end_idx + 2]
+                        # LOCKLESS update for speed
+                        self.latest_csi_frame = jpeg_data
+                        frame_count += 1
                         
-                        if len(jpeg_frame) > 300:  # Very low minimum for speed
-                            with self.csi_frame_lock:
-                                self.latest_csi_frame = jpeg_frame
-                            frame_count += 1
-                            
-                            if frame_count % 200 == 0:  # Even less frequent logging
-                                logger.debug(f"📹 CSI frame #{frame_count}")
+                    else:
+                        consecutive_errors += 1
                         
-                        frame_buffer = frame_buffer[end_idx + 2:]
+                        # If current approach fails too much, try next variant
+                        if consecutive_errors > max_consecutive_errors:
+                            current_cmd_index = (current_cmd_index + 1) % len(command_variants)
+                            cmd = command_variants[current_cmd_index]
+                            logger.warning(f"🔄 Switching to CSI command variant {current_cmd_index + 1}")
+                            consecutive_errors = 0
+                            time.sleep(0.5)
                     
-                    # Aggressive buffer management for low latency
-                    if len(frame_buffer) > 30000:
-                        frame_buffer = frame_buffer[-15000:]
-                        
-                except Exception as e:
-                    logger.error(f"CSI capture error: {e}")
-                    time.sleep(0.1)
-            
-            logger.info(f"🛑 Background CSI capture stopped after {frame_count} frames")
-            
+                    # Performance logging every 5 seconds
+                    if current_time - last_performance_log >= 5.0:
+                        elapsed = current_time - start_time
+                        fps = frame_count / elapsed if elapsed > 0 else 0
+                        logger.info(f"🔧 HYBRID CSI FPS: {fps:.1f} | Variant: {current_cmd_index + 1} | Frames: {frame_count}")
+                        last_performance_log = current_time
+                
+                    # Adaptive sleep based on performance
+                    if fps > 5:
+                        time.sleep(0.1)   # Fast mode - 10 FPS max
+                    elif fps > 2:
+                        time.sleep(0.2)   # Medium mode - 5 FPS max  
+                    else:
+                        time.sleep(0.5)   # Slow mode - 2 FPS max
+                    
+                except subprocess.TimeoutExpired:
+                    consecutive_errors += 1
+                    logger.debug("CSI capture timeout")
+                    
+                except Exception as loop_error:
+                    consecutive_errors += 1
+                    logger.debug(f"CSI capture error: {loop_error}")
+                    
+                    if consecutive_errors > max_consecutive_errors * 2:
+                        logger.error("❌ Too many CSI errors - pausing")
+                        time.sleep(2)
+                        consecutive_errors = 0
+                    
         except Exception as e:
-            logger.error(f"CSI background capture failed: {e}")
+            logger.error(f"🔧 HYBRID CSI initialization error: {e}")
         finally:
-            if process and process.poll() is None:
-                try:
-                    process.terminate()
-                    process.wait(timeout=2)
-                except:
-                    process.kill()
-                    process.wait(timeout=1)
+            self.csi_capture_running = False
+            logger.info(f"🔧 HYBRID CSI capture stopped after {frame_count} frames")
     
     def start_streaming(self):
         
@@ -573,16 +608,16 @@ class CameraManager:
         self.csi_streaming = False
     
     def get_csi_frame(self):
-        
+        """CSI frame access - optimized for maximum speed"""
         # Always prefer streaming mode for CSI - much faster
         if not self.csi_streaming:
             # Auto-start streaming for better performance
             self.start_csi_streaming()
-            time.sleep(0.2)  # Brief wait for stream to start
+            time.sleep(0.1)  # Brief wait for stream to start
         
-        with self.csi_frame_lock:
-            if self.latest_csi_frame:
-                return self.latest_csi_frame
+        # LOCKLESS direct access for maximum speed
+        if self.latest_csi_frame:
+            return self.latest_csi_frame
         
         # Fallback to direct capture only if streaming fails
         image_data, error = self.capture_csi_image(width=160, height=120)
@@ -592,64 +627,46 @@ class CameraManager:
         return None
     
     def get_csi_frame_fast(self):
-        """Ultra-fast CSI frame retrieval - streaming only"""
+        """ULTRA-FAST CSI frame retrieval - LOCKLESS access for maximum speed"""
         if not self.csi_streaming:
             self.start_csi_streaming()
         
-        with self.csi_frame_lock:
-            return self.latest_csi_frame
+        # LOCKLESS direct access - maximum speed like USB camera
+        return self.latest_csi_frame
     
     def capture_csi_image(self, width=640, height=480):
         
         if not self.csi_available:
             return None, "CSI camera not available"
         
-        output_path = f"/tmp/csi_capture_{int(time.time() * 1000)}_{os.getpid()}.jpg"
-        
         try:
-            # Use very small resolution for maximum speed
-            fast_width = min(width, 160)
-            fast_height = min(height, 120)
+            # Use OpenCV for direct CSI capture
+            cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
             
-            cmd = [
-                "libcamera-still",
-                "-o", output_path,
-                "-t", "25",  # Extremely fast capture
-                "--width", str(fast_width),
-                "--height", str(fast_height),
-                "-n",
-                "--quality", "40",  # Lower quality for speed
-                "--immediate",
-                "--flush",
-                "--denoise", "cdn_off",
-                "--shutter", "10000"  # Fast shutter
-            ]
+            if not cap.isOpened():
+                return None, "Failed to open CSI camera"
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)  # Even faster timeout
+            # Set capture resolution
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(width, 640))
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(height, 480))
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y','U','Y','V'))
             
-            if result.returncode == 0 and os.path.exists(output_path):
-                with open(output_path, 'rb') as f:
-                    image_data = f.read()
-                os.remove(output_path)
+            # Capture frame
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret and frame is not None:
+                # Encode to JPEG
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                _, buffer = cv2.imencode('.jpg', frame, encode_params)
                 
-                if len(image_data) > 100:
-                    image_b64 = base64.b64encode(image_data).decode('utf-8')
-                    return image_b64, None
-                else:
-                    return None, "CSI camera returned empty image"
+                image_b64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
+                return image_b64, None
             else:
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-                return None, f"libcamera-still failed: {result.stderr}"
-        
-        except subprocess.TimeoutExpired:
-            if os.path.exists(output_path):
-                os.remove(output_path)
-            return None, "CSI camera capture timed out (2s)"
+                return None, "Failed to capture CSI frame"
+                
         except Exception as e:
-            if os.path.exists(output_path):
-                os.remove(output_path)
-            return None, f"CSI capture error: {e}"
+            return None, f"CSI capture error: {str(e)}"
     
     def capture_usb_image(self, width=640, height=480):
         
@@ -732,6 +749,116 @@ class CameraManager:
                 frame_b64 = base64.b64encode(self.latest_frame).decode('utf-8')
                 return frame_b64
         return None
+    
+    def get_latest_frame_fast(self):
+        """EXTREME SPEED frame retrieval - NO LOCKS for maximum performance"""
+        if not self.streaming or not self.latest_frame:
+            return None
+        
+        # Direct access WITHOUT lock - maximum speed
+        return self.latest_frame
+    
+    def start_streaming(self):
+        """Start high-speed streaming with minimal startup delay"""
+        if self.streaming:
+            logger.info("✅ Streaming already active")
+            return True
+            
+        if not self.usb_available:
+            logger.error("❌ No USB camera available for streaming")
+            return False
+            
+        try:
+            logger.info("🚀 Starting high-speed streaming...")
+            self.streaming = True
+            self.capture_running = True
+            self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
+            self.capture_thread.start()
+            
+            # Minimal startup delay - just enough for thread to start
+            time.sleep(0.1)
+            
+            logger.info("✅ High-speed streaming started")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to start streaming: {e}")
+            self.streaming = False
+            self.capture_running = False
+            return False
+    
+    def _capture_loop(self):
+        """FREEZE-FREE 12+ FPS capture loop - bulletproof against iOS app freezes"""
+        cap = None
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        try:
+            cap = cv2.VideoCapture(self.usb_device_id, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                logger.error(f"Failed to open USB camera {self.usb_device_id}")
+                self.streaming = False
+                return
+            
+            # CRITICAL: Bulletproof camera settings to prevent freezes
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)   # Stable resolution
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)  # Stable resolution
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)      # CRITICAL: Single frame buffer
+            cap.set(cv2.CAP_PROP_FPS, 30)            # Request 30 FPS
+            
+            # Use YUYV format - more stable than MJPEG on Pi
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y','U','Y','V'))
+            
+            # Disable ALL auto-adjustments for consistent, freeze-free timing
+            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)   # Manual exposure
+            cap.set(cv2.CAP_PROP_EXPOSURE, -6)       # Fast but stable exposure  
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)       # No autofocus delays
+            cap.set(cv2.CAP_PROP_AUTO_WB, 0)         # No auto white balance delays
+            cap.set(cv2.CAP_PROP_GAIN, 0)            # No auto gain delays
+            
+            logger.info("🛡️ FREEZE-FREE USB capture started - bulletproof mode")
+            
+            frame_count = 0
+            start_time = time.time()
+            last_performance_log = start_time
+            last_health_check = start_time
+            
+            # Pre-allocate encode parameters for consistent performance
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 65]  # Good quality/speed balance
+            
+            while self.capture_running and self.streaming:
+                # CRITICAL: Only grab, don't decode unnecessary frames
+                cap.grab()  # Discard old frame
+                
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    # Encode to JPEG immediately 
+                    _, buffer = cv2.imencode('.jpg', frame, encode_params)
+                    jpeg_data = buffer.tobytes()
+                    
+                    # Update latest frame - NO LOCK for speed
+                    self.latest_frame = jpeg_data
+                    
+                    frame_count += 1
+                    
+                    # Performance logging every 2 seconds
+                    current_time = time.time()
+                    if current_time - last_performance_log >= 2.0:
+                        elapsed = current_time - start_time
+                        fps = frame_count / elapsed if elapsed > 0 else 0
+                        logger.info(f"� LOCKED FPS: {fps:.1f} | Target: 10+ FPS | Frames: {frame_count}")
+                        last_performance_log = current_time
+                
+                # NO SLEEP - let CPU run at full speed
+                    
+        except Exception as e:
+            logger.error(f"🎯 LOCKED capture loop error: {e}")
+        finally:
+            if cap:
+                cap.release()
+            self.streaming = False
+            self.capture_running = False
+            logger.info(f"🎯 LOCKED capture loop stopped after {frame_count} frames")
+            logger.info(f"� EXTREME capture loop stopped after {frame_count} frames")
     
     def get_camera_status(self):
         
@@ -886,7 +1013,7 @@ class GuardItIMUServer:
         def capture_csi():
             width = request.args.get('width', 640, type=int)
             height = request.args.get('height', 480, type=int)
-            return jsonify(self.get_csi_image(width, height))
+            return self.get_csi_image(width, height)
         
         @self.app.route("/camera/csi/fast", methods=["GET"])
         def capture_csi_fast():
@@ -895,35 +1022,14 @@ class GuardItIMUServer:
         
         @self.app.route("/camera/usb", methods=["GET"])
         def capture_usb():
-            width = request.args.get('width', 640, type=int)
-            height = request.args.get('height', 480, type=int)
-            return jsonify(self.get_usb_image(width, height))
+            """Main USB camera endpoint - optimized for 10+ FPS"""
+            return self.get_usb_image_optimized()
         
         @self.app.route("/camera/both", methods=["GET"])
         def capture_both():
             width = request.args.get('width', 640, type=int)
             height = request.args.get('height', 480, type=int)
             return jsonify(self.get_both_images(width, height))
-        
-        @self.app.route("/stream/start", methods=["POST"])
-        def start_stream():
-            return jsonify(self.start_camera_stream())
-        
-        @self.app.route("/stream/stop", methods=["POST"])
-        def stop_stream():
-            return jsonify(self.stop_camera_stream())
-        
-        @self.app.route("/stream/frame", methods=["GET"])
-        def get_stream_frame():
-            return jsonify(self.get_stream_frame())
-        
-        @self.app.route("/stream/fast", methods=["GET"])
-        def get_fast_stream():
-            return self.get_fast_stream_response()
-        
-        @self.app.route("/stream/raw", methods=["GET"])
-        def get_raw_stream():
-            return self.get_raw_stream_response()
             
         @self.app.route("/notification/suspicious_activity", methods=["POST"])
         def trigger_suspicious_activity():
@@ -941,6 +1047,23 @@ class GuardItIMUServer:
                     'success': False,
                     'error': str(e)
                 }), 500
+        
+        # Buzzer endpoints for iOS app
+        @self.app.route("/buzzer/status", methods=["GET"])
+        def buzzer_status():
+            return jsonify(self.get_buzzer_status())
+        
+        @self.app.route("/buzzer", methods=["GET"])
+        def buzzer_info():
+            return jsonify(self.get_buzzer_status())
+        
+        @self.app.route("/buzzer/trigger", methods=["POST"])
+        def trigger_buzzer():
+            return jsonify(self.trigger_buzzer_endpoint())
+        
+        @self.app.route("/buzzer/test", methods=["POST"])
+        def test_buzzer():
+            return jsonify(self.test_buzzer_endpoint())
         
         @self.app.route("/detection/enable", methods=["POST"])
         def enable_detection():
@@ -998,7 +1121,7 @@ class GuardItIMUServer:
             "ip": local_ip,
             "port": SERVER_PORT,
             "status": "running",
-            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/csi/fast", "/camera/usb", "/camera/both", "/stream/start", "/stream/stop", "/stream/frame", "/stream/fast", "/stream/raw", "/detection/enable", "/detection/disable", "/detection/status", "/detection/model"],
+            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/csi/fast", "/camera/usb", "/camera/both", "/notification/suspicious_activity", "/detection/enable", "/detection/disable", "/detection/status", "/detection/model", "/buzzer/status", "/buzzer", "/buzzer/trigger", "/buzzer/test"],
             "camera_status": self.camera.get_camera_status() if self.camera else {}
         }
     
@@ -1035,63 +1158,62 @@ class GuardItIMUServer:
             }
         }
     
-    def get_csi_image(self, width=640, height=480) -> dict:
-        
+    def get_csi_image(self, width=640, height=480):
+        """Main CSI endpoint - TARGET: 12+ FPS ULTRA-FAST libcamera for iOS app"""
         if not self.camera:
-            return {"error": "Camera not initialized"}
-        
-        start_time = time.time()
+            return Response('{"error":"Camera not initialized"}', mimetype='application/json')
         
         try:
-            # Always try streaming first for maximum speed
+            # Ensure CSI streaming is active for maximum performance
             if not self.camera.csi_streaming:
-                self.camera.start_csi_streaming()
-                time.sleep(0.1)  # Very brief wait
+                if not self.camera.start_csi_streaming():
+                    return Response('{"error":"Failed to start CSI streaming"}', mimetype='application/json')
             
-            frame_data = self.camera.get_csi_frame_fast()
+            # LOCKLESS CSI frame access for maximum speed (like USB camera)
+            frame_data = self.camera.latest_csi_frame
             
             if frame_data:
-                image_b64 = base64.b64encode(frame_data).decode('utf-8')
-                response_time = round((time.time() - start_time) * 1000, 1)
-                
-                logger.info(f"🎥 CSI frame delivered - Size: {len(frame_data)/1024:.1f}KB, Time: {response_time}ms")
-                
-                return {
-                    "success": True,
-                    "camera": "csi",
-                    "image": image_b64,
-                    "format": "jpeg",
-                    "width": width,
-                    "height": height,
-                    "timestamp": int(time.time() * 1000),
-                    "response_time_ms": response_time,
-                    "streaming": True
-                }
-            else:
-                logger.info("🔄 CSI streaming fallback to direct capture...")
-                image_data, error = self.camera.capture_csi_image(width, height)
-                
-                if image_data:
-                    response_time = round((time.time() - start_time) * 1000, 1)
-                    logger.info(f"🎥 CSI direct capture - Size: {len(image_data)//1024:.1f}KB, Time: {response_time}ms")
+                try:
+                    # Cache good frame for freeze recovery
+                    self.camera._last_good_csi_frame = frame_data
                     
-                    return {
+                    # Ultra-fast base64 encoding
+                    image_b64 = base64.b64encode(frame_data).decode('utf-8')
+                    
+                    response_data = {
                         "success": True,
                         "camera": "csi",
-                        "image": image_data,
+                        "image": image_b64,
                         "format": "jpeg",
-                        "width": width,
-                        "height": height,
                         "timestamp": int(time.time() * 1000),
-                        "response_time_ms": response_time,
-                        "streaming": False
+                        "streaming": True,
+                        "libcamera": True,  # Indicate using libcamera
+                        "ultra_fast": True  # Indicate lockless access
                     }
-                else:
-                    return {"error": error or "No CSI frame available", "camera": "csi"}
+                    
+                    response = jsonify(response_data)
+                    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                    response.headers['Pragma'] = 'no-cache'
+                    response.headers['Expires'] = '0'
+                    response.headers['Access-Control-Allow-Origin'] = '*'
+                    return response
+                    
+                except Exception as encode_error:
+                    logger.error(f"CSI frame encoding error: {encode_error}")
+                    return jsonify({"success": False, "error": "Frame encoding failed", "camera": "csi"})
+            else:
+                # No frame available - return structured error for iOS app
+                return jsonify({
+                    "success": False,
+                    "error": "No CSI frame available", 
+                    "camera": "csi", 
+                    "streaming": self.camera.csi_streaming,
+                    "timestamp": int(time.time() * 1000)
+                })
                 
         except Exception as e:
-            logger.error(f"CSI image capture error: {e}")
-            return {"error": str(e), "camera": "csi"}
+            logger.error(f"CSI camera endpoint error: {e}")
+            return jsonify({"success": False, "error": str(e), "camera": "csi"})
     
     def get_csi_image_fast(self) -> dict:
         """Ultra-fast CSI image capture - streaming only"""
@@ -1125,40 +1247,75 @@ class GuardItIMUServer:
         except Exception as e:
             return {"error": str(e), "camera": "csi"}
     
-    def get_usb_image(self, width=640, height=480) -> dict:
-        
+    def get_usb_image_optimized(self):
+        """Main USB endpoint - FREEZE-FREE 12+ FPS optimized for iOS app"""
         if not self.camera:
-            return {"error": "Camera not initialized"}
-        
-        start_time = time.time()
+            return Response('{"error":"Camera not initialized"}', mimetype='application/json')
         
         try:
+            # Ensure streaming is active for maximum performance
             if not self.camera.streaming:
-                self.camera.start_streaming()
-                time.sleep(0.1)  # Reduced startup delay
+                if not self.camera.start_streaming():
+                    return Response('{"error":"Failed to start streaming"}', mimetype='application/json')
+                # NO SLEEP - immediate response for freeze-free operation
             
-            frame_data = self.camera.get_latest_frame()
+            # SAFE frame access with minimal lock time to prevent freezes
+            frame_data = None
+            try:
+                # Ultra-fast lock acquisition with timeout to prevent freezes
+                if self.camera.frame_lock.acquire(timeout=0.01):  # 10ms max wait
+                    try:
+                        frame_data = self.camera.latest_frame
+                    finally:
+                        self.camera.frame_lock.release()
+                else:
+                    # Lock timeout - use last known good frame or return error
+                    logger.debug("Frame lock timeout - returning cached response")
+                    frame_data = getattr(self.camera, '_last_good_frame', None)
+            except Exception as lock_error:
+                logger.debug(f"Frame lock error: {lock_error}")
+                frame_data = getattr(self.camera, '_last_good_frame', None)
             
             if frame_data:
-                image_b64 = base64.b64encode(frame_data).decode('utf-8')
-                response_time = round((time.time() - start_time) * 1000, 1)
-
-                return {
-                    "success": True,
-                    "camera": "usb",
-                    "image": image_b64,
-                    "format": "jpeg",
-                    "width": width,
-                    "height": height,
-                    "timestamp": int(time.time() * 1000),
-                    "response_time_ms": response_time,
-                    "streaming": True
-                }
+                try:
+                    # Cache good frame for freeze recovery
+                    self.camera._last_good_frame = frame_data
+                    
+                    # Ultra-fast base64 encoding
+                    image_b64 = base64.b64encode(frame_data).decode('utf-8')
+                    
+                    response_data = {
+                        "success": True,
+                        "camera": "usb",
+                        "image": image_b64,
+                        "format": "jpeg",
+                        "timestamp": int(time.time() * 1000),
+                        "streaming": True
+                    }
+                    
+                    response = jsonify(response_data)
+                    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                    response.headers['Pragma'] = 'no-cache'
+                    response.headers['Expires'] = '0'
+                    response.headers['Access-Control-Allow-Origin'] = '*'
+                    return response
+                    
+                except Exception as encode_error:
+                    logger.error(f"Frame encoding error: {encode_error}")
+                    return jsonify({"error": "Frame encoding failed", "camera": "usb"})
             else:
-                return {"error": "No USB frame available", "camera": "usb"}
+                # No frame available - return structured error for iOS app
+                return jsonify({
+                    "success": False,
+                    "error": "No frame available", 
+                    "camera": "usb", 
+                    "streaming": self.camera.streaming,
+                    "timestamp": int(time.time() * 1000)
+                })
                 
         except Exception as e:
-            return {"error": str(e), "camera": "usb"}
+            logger.error(f"USB camera endpoint error: {e}")
+            return jsonify({"success": False, "error": str(e), "camera": "usb"})
     
     def get_both_images(self, width=640, height=480) -> dict:
         
@@ -1194,80 +1351,6 @@ class GuardItIMUServer:
                 }
         
         return result
-    
-    def start_camera_stream(self) -> dict:
-        
-        if not self.camera:
-            return {"error": "Camera not initialized"}
-        
-        if self.camera.start_streaming():
-            return {"success": True, "message": "USB camera streaming started"}
-        else:
-            return {"error": "Failed to start USB camera streaming"}
-    
-    def stop_camera_stream(self) -> dict:
-        
-        if not self.camera:
-            return {"error": "Camera not initialized"}
-        
-        self.camera.stop_streaming()
-        return {"success": True, "message": "Camera streaming stopped"}
-    
-    def get_stream_frame(self) -> dict:
-        
-        if not self.camera:
-            return {"error": "Camera not initialized"}
-        
-        if not self.camera.streaming:
-            return {"error": "Streaming not active. Call /stream/start first"}
-        
-        frame = self.camera.get_usb_frame()
-        if frame:
-            return {
-                "success": True,
-                "frame": frame,
-                "format": "jpeg",
-                "timestamp": int(time.time() * 1000)
-            }
-        else:
-            return {"error": "Failed to capture frame"}
-    
-    def get_fast_stream_response(self):
-        
-        if not self.camera or not self.camera.streaming:
-            return jsonify({"error": "Streaming not active"})
-        
-        frame_data = self.camera.get_latest_frame_fast()
-        if frame_data:
-            frame_b64 = base64.b64encode(frame_data).decode('utf-8')
-            response = jsonify({"f": frame_b64, "t": int(time.time() * 1000)})
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
-        else:
-            return jsonify({"error": "Failed to capture frame"})
-    
-    def get_raw_stream_response(self):
-        
-        if not self.camera or not self.camera.streaming:
-            return Response("Error: Streaming not active", status=400, mimetype='text/plain')
-        
-        with self.camera.frame_lock:
-            if self.camera.latest_frame:
-                response = Response(
-                    self.camera.latest_frame,
-                    mimetype='image/jpeg',
-                    headers={
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache',
-                        'Expires': '0',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                )
-                return response
-        
-        return Response("Error: No frame available", status=503, mimetype='text/plain')
     
     def handle_detection_alert(self, alert_type):
         
@@ -1490,6 +1573,84 @@ class GuardItIMUServer:
         except Exception as e:
             logger.error(f"❌ Error triggering suspicious activity notification: {e}")
             return False
+    
+    def get_buzzer_status(self) -> dict:
+        """Get buzzer status for iOS app"""
+        try:
+            buzzer_available = self.buzzer is not None
+            buzzer_active = self.buzzer.is_active if buzzer_available else False
+            
+            return {
+                "success": True,
+                "available": buzzer_available,
+                "active": buzzer_active,
+                "pin": BUZZER_PIN,
+                "frequency": BUZZER_FREQUENCY,
+                "last_notification_time": getattr(self, 'last_notification_time', 0),
+                "cooldown_ms": NOTIFICATION_COOLDOWN,
+                "timestamp": int(time.time() * 1000)
+            }
+        except Exception as e:
+            logger.error(f"Error getting buzzer status: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "available": False,
+                "active": False
+            }
+    
+    def trigger_buzzer_endpoint(self) -> dict:
+        """Trigger buzzer via API endpoint"""
+        try:
+            if not self.buzzer:
+                return {
+                    "success": False,
+                    "error": "Buzzer not available",
+                    "message": "Buzzer hardware not initialized"
+                }
+            
+            # Trigger buzzer beep
+            self.trigger_loud_buzzer()
+            
+            return {
+                "success": True,
+                "message": "Buzzer triggered successfully",
+                "duration_ms": ALERT_DURATION,
+                "timestamp": int(time.time() * 1000)
+            }
+        except Exception as e:
+            logger.error(f"Error triggering buzzer: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def test_buzzer_endpoint(self) -> dict:
+        """Test buzzer functionality"""
+        try:
+            if not self.buzzer:
+                return {
+                    "success": False,
+                    "error": "Buzzer not available",
+                    "message": "Buzzer hardware not initialized"
+                }
+            
+            # Test with a short beep
+            test_duration = 100  # 100ms test beep
+            self.buzzer.beep(test_duration)
+            
+            return {
+                "success": True,
+                "message": "Buzzer test completed",
+                "test_duration_ms": test_duration,
+                "timestamp": int(time.time() * 1000)
+            }
+        except Exception as e:
+            logger.error(f"Error testing buzzer: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     def main_loop(self):
         
