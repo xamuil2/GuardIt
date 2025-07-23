@@ -41,15 +41,16 @@ LED_RED_PIN = 18
 LED_GREEN_PIN = 19
 LED_BLUE_PIN = 20
 
-FALL_THRESHOLD = 25.0
-MOVEMENT_THRESHOLD = 7.0
+FALL_THRESHOLD = 60.0
+MOVEMENT_THRESHOLD = 20.0
 DATA_INTERVAL = 100
 NOTIFICATION_COOLDOWN = 2000
 
 NOTIFICATION_TYPES = {
     'fall': 'fall',
     'movement': 'movement',
-    'suspicious_activity': 'suspicious_activity'
+    'suspicious_activity': 'suspicious_activity',
+    'proximity_alert': 'proximity_alert'
 }
 
 class RGBLEDController:
@@ -159,6 +160,8 @@ class NotificationHandler:
             return self._handle_movement_alert(data)
         elif alert_type == NOTIFICATION_TYPES['suspicious_activity']:
             return self._handle_suspicious_activity_alert(data)
+        elif alert_type == NOTIFICATION_TYPES['proximity_alert']:
+            return self._handle_proximity_alert(data)
         else:
             logger.warning(f"Unknown alert type: {alert_type}")
             return False
@@ -218,6 +221,31 @@ class NotificationHandler:
         except Exception as e:
             logger.error(f"Error handling suspicious activity alert: {e}")
             return False
+    
+    def _handle_proximity_alert(self, data):
+        """Handle proximity alert when object gets too close to camera"""
+        try:
+            logger.info("⚠️ PROXIMITY ALERT - Object too close to camera")
+            
+            # Orange LED for proximity alert
+            self.led_controller.set_color(100, 50, 0)  # Orange color
+            
+            # Two quick beeps for proximity alert
+            for i in range(2):
+                self.buzzer.beep(ALERT_DURATION // 2)  # Shorter beeps
+                time.sleep(0.05)
+            
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"Proximity alert triggered at {timestamp}")
+            
+            # Return to green after brief delay
+            time.sleep(0.5)
+            self.led_controller.green()
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error handling proximity alert: {e}")
+            return False
 
 @dataclass
 class IMUData:
@@ -255,6 +283,12 @@ class CameraManager:
         self.last_detection_alert = 0
         self.detection_callback = None
         
+        # Async detection thread for non-blocking processing
+        self.detection_thread = None
+        self.detection_running = False
+        self.detection_frame_queue = None
+        self.detection_queue_lock = threading.Lock()
+        
         self._detect_cameras()
         self._initialize_detector()
         
@@ -270,13 +304,85 @@ class CameraManager:
             self.start_csi_streaming()
     
     def _initialize_detector(self):
-        
+        """Initialize object detector with async processing thread"""
         try:
             self.detector = GuardItPersonDetector()
             logger.info("✅ Object detection initialized")
+            
+            # Start async detection thread for non-blocking processing
+            self.detection_running = True
+            self.detection_thread = threading.Thread(target=self._async_detection_loop, daemon=True)
+            self.detection_thread.start()
+            logger.info("🔄 Async detection thread started for lag-free performance")
+            
         except Exception as e:
             logger.error(f"❌ Failed to initialize object detection: {e}")
             self.detector = None
+    
+    def _async_detection_loop(self):
+        """Separate thread for processing detection without blocking camera capture"""
+        logger.info("🔄 Async detection loop started - maintaining 12+ FPS")
+        
+        detection_count = 0
+        last_fps_log = time.time()
+        
+        while self.detection_running:
+            try:
+                # Only process if detection is enabled and we have a frame to analyze
+                if (self.detection_enabled and self.detector and 
+                    hasattr(self, 'detection_frame_queue') and self.detection_frame_queue is not None):
+                    
+                    with self.detection_queue_lock:
+                        frame_to_process = self.detection_frame_queue
+                        self.detection_frame_queue = None  # Clear queue
+                    
+                    if frame_to_process is not None:
+                        try:
+                            # Process detection on separate thread - non-blocking
+                            detection_triggered, processed_frame = self.detector.process_detection(frame_to_process)
+                            
+                            if detection_triggered and self.detection_callback:
+                                # Determine alert type based on detection context
+                                current_time = time.time() * 1000
+                                if hasattr(self.detector, 'last_proximity_alert_time') and \
+                                   (current_time - self.detector.last_proximity_alert_time) < 1000:
+                                    self.detection_callback("proximity_alert")
+                                else:
+                                    self.detection_callback("suspicious_activity")
+                            
+                            detection_count += 1
+                            
+                            # Log detection performance every 10 seconds
+                            current_time = time.time()
+                            if current_time - last_fps_log >= 10.0:
+                                elapsed = current_time - last_fps_log
+                                detection_fps = detection_count / elapsed if elapsed > 0 else 0
+                                logger.info(f"🔍 Detection FPS: {detection_fps:.1f} | Total detections: {detection_count}")
+                                last_fps_log = current_time
+                                detection_count = 0
+                                
+                        except Exception as e:
+                            logger.debug(f"Async detection processing error: {e}")
+                
+                # Sleep to prevent CPU overload - detection doesn't need to be super frequent
+                time.sleep(0.1)  # Process detection max 10 times per second
+                    
+            except Exception as e:
+                logger.debug(f"Async detection loop error: {e}")
+                time.sleep(0.1)
+        
+        logger.info("🔄 Async detection loop stopped")
+    
+    def _queue_frame_for_detection(self, frame):
+        """Queue a frame for async detection processing (non-blocking)"""
+        if self.detection_enabled and self.detector:
+            try:
+                # Only queue if previous frame has been processed (prevent backlog)
+                with self.detection_queue_lock:
+                    if self.detection_frame_queue is None:  # Only if queue is empty
+                        self.detection_frame_queue = frame.copy()  # Copy frame for safety
+            except Exception as e:
+                logger.debug(f"Frame queuing error: {e}")
     
     def _detect_cameras(self):
         
@@ -358,7 +464,7 @@ class CameraManager:
             cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Auto focus off
             
             frame_count = 0
-            detection_interval = 20  # Reduce detection frequency for speed
+            detection_interval = 5  # Run detection more frequently for proximity alerts
             
             while self.capture_running and cap.isOpened():
                 try:
@@ -377,7 +483,14 @@ class CameraManager:
                                 detection_triggered, processed_frame = self.detector.process_detection(frame)
                                 
                                 if detection_triggered and self.detection_callback:
-                                    self.detection_callback("suspicious_activity")
+                                    # Determine alert type based on detection context
+                                    # Check if it's a proximity alert or general suspicious activity
+                                    current_time = time.time() * 1000
+                                    if hasattr(self.detector, 'last_proximity_alert_time') and \
+                                       (current_time - self.detector.last_proximity_alert_time) < 1000:
+                                        self.detection_callback("proximity_alert")
+                                    else:
+                                        self.detection_callback("suspicious_activity")
                             
                             except Exception as e:
                                 logger.debug(f"Detection processing error: {e}")
@@ -831,7 +944,12 @@ class CameraManager:
                 
                 ret, frame = cap.read()
                 if ret and frame is not None:
-                    # Encode to JPEG immediately 
+                    # ASYNC DETECTION: Queue frame for processing without blocking capture
+                    if frame_count % 10 == 0:  # Only queue every 10th frame for detection
+                        self._queue_frame_for_detection(frame)
+                    
+                    # NO DETECTION PROCESSING IN MAIN LOOP - maintains 12+ FPS
+                    # Encode original frame immediately for maximum speed 
                     _, buffer = cv2.imencode('.jpg', frame, encode_params)
                     jpeg_data = buffer.tobytes()
                     
@@ -897,6 +1015,13 @@ class CameraManager:
         return False
     
     def cleanup(self):
+        """Clean up camera resources and stop all threads"""
+        # Stop detection thread first
+        if hasattr(self, 'detection_running'):
+            self.detection_running = False
+        if hasattr(self, 'detection_thread') and self.detection_thread:
+            if self.detection_thread.is_alive():
+                self.detection_thread.join(timeout=2)
         
         self.stop_streaming()
         self.stop_csi_streaming()
@@ -930,6 +1055,11 @@ class GuardItIMUServer:
         
         if self.camera:
             self.camera.set_detection_callback(self.handle_detection_alert)
+            # Auto-enable object detection on startup for immediate proximity alerts
+            if self.camera.enable_detection():
+                logger.info("🚨 Object detection auto-enabled on startup")
+            else:
+                logger.warning("⚠️ Failed to auto-enable object detection")
         
         if not self.init_mpu6050():
             raise Exception("MPU6050 initialization failed")
@@ -1082,6 +1212,40 @@ class GuardItIMUServer:
             model_name = request.json.get('model', 'hog') if request.json else 'hog'
             return jsonify(self.set_detection_model(model_name))
         
+        @self.app.route("/proximity/enable", methods=["POST"])
+        def enable_proximity_alerts():
+            return jsonify(self.enable_proximity_alerts())
+        
+        @self.app.route("/proximity/disable", methods=["POST"])
+        def disable_proximity_alerts():
+            return jsonify(self.disable_proximity_alerts())
+        
+        @self.app.route("/proximity/threshold", methods=["POST"])
+        def set_proximity_threshold():
+            threshold = request.json.get('threshold', 0.7) if request.json else 0.7
+            return jsonify(self.set_proximity_threshold(threshold))
+        
+        @self.app.route("/proximity/status", methods=["GET"])
+        def proximity_status():
+            return jsonify(self.get_proximity_status())
+        
+        @self.app.route("/notification/proximity_alert", methods=["POST"])
+        def trigger_proximity_alert():
+            """Manual proximity alert trigger for testing"""
+            try:
+                success = self.trigger_proximity_alert_notification()
+                return jsonify({
+                    'success': success,
+                    'message': 'Proximity alert notification triggered' if success else 'Failed to trigger notification',
+                    'timestamp': time.time()
+                })
+            except Exception as e:
+                logger.error(f"Error triggering proximity alert notification: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
         @self.app.after_request
         def after_request(response):
             response.headers.add('Access-Control-Allow-Origin', '*')
@@ -1121,7 +1285,7 @@ class GuardItIMUServer:
             "ip": local_ip,
             "port": SERVER_PORT,
             "status": "running",
-            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/csi/fast", "/camera/usb", "/camera/both", "/notification/suspicious_activity", "/detection/enable", "/detection/disable", "/detection/status", "/detection/model", "/buzzer/status", "/buzzer", "/buzzer/trigger", "/buzzer/test"],
+            "endpoints": ["/status", "/imu", "/data", "/sensor", "/camera", "/camera/csi", "/camera/csi/fast", "/camera/usb", "/camera/both", "/notification/suspicious_activity", "/notification/proximity_alert", "/detection/enable", "/detection/disable", "/detection/status", "/detection/model", "/proximity/enable", "/proximity/disable", "/proximity/threshold", "/proximity/status", "/buzzer/status", "/buzzer", "/buzzer/trigger", "/buzzer/test"],
             "camera_status": self.camera.get_camera_status() if self.camera else {}
         }
     
@@ -1353,7 +1517,7 @@ class GuardItIMUServer:
         return result
     
     def handle_detection_alert(self, alert_type):
-        
+        """Enhanced detection alert handler with proximity support"""
         current_time = time.time() * 1000
         
         if alert_type == "suspicious_activity":
@@ -1369,6 +1533,20 @@ class GuardItIMUServer:
                     self.notification_handler.trigger_notification("suspicious_activity")
             else:
                 logger.debug("Suspicious activity detected but still in notification cooldown")
+        
+        elif alert_type == "proximity_alert":
+            if (current_time - self.last_notification_time) > (NOTIFICATION_COOLDOWN // 2):  # Shorter cooldown for proximity
+                self.current_data.alert = True
+                self.current_data.alertType = "proximity_alert"
+                self.last_alert_time = current_time
+                self.last_notification_time = current_time
+                
+                self.last_hardware_trigger_time = current_time
+                
+                if self.notification_handler:
+                    self.notification_handler.trigger_notification("proximity_alert")
+            else:
+                logger.debug("Proximity alert detected but still in notification cooldown")
     
     def enable_object_detection(self) -> dict:
         
@@ -1401,7 +1579,7 @@ class GuardItIMUServer:
         }
     
     def set_detection_model(self, model_name) -> dict:
-        
+        """Set the detection model"""
         if not self.camera:
             return {"error": "Camera not initialized"}
         
@@ -1409,6 +1587,61 @@ class GuardItIMUServer:
             return {"success": True, "message": f"Detection model set to {model_name}"}
         else:
             return {"error": f"Failed to set detection model to {model_name}"}
+    
+    def enable_proximity_alerts(self) -> dict:
+        """Enable proximity-based alerts"""
+        if not self.camera or not self.camera.detector:
+            return {"error": "Camera or detector not initialized"}
+        
+        self.camera.detector.enable_proximity_alerts()
+        return {"success": True, "message": "Proximity alerts enabled"}
+    
+    def disable_proximity_alerts(self) -> dict:
+        """Disable proximity-based alerts"""
+        if not self.camera or not self.camera.detector:
+            return {"error": "Camera or detector not initialized"}
+        
+        self.camera.detector.disable_proximity_alerts()
+        return {"success": True, "message": "Proximity alerts disabled"}
+    
+    def set_proximity_threshold(self, threshold) -> dict:
+        """Set proximity alert threshold"""
+        if not self.camera or not self.camera.detector:
+            return {"error": "Camera or detector not initialized"}
+        
+        if self.camera.detector.set_proximity_threshold(threshold):
+            return {"success": True, "message": f"Proximity threshold set to {threshold}"}
+        else:
+            return {"error": "Invalid threshold value (must be 0.0 - 1.0)"}
+    
+    def get_proximity_status(self) -> dict:
+        """Get proximity detection status"""
+        if not self.camera or not self.camera.detector:
+            return {"error": "Camera or detector not initialized"}
+        
+        status = self.camera.detector.get_status()
+        return {
+            "proximity_enabled": status.get('proximity_alert_enabled', False),
+            "threshold": status.get('proximity_threshold', 0.7),
+            "last_alert": status.get('last_proximity_alert', 0),
+            "detection_model": status.get('current_model', 'unknown')
+        }
+    
+    def trigger_proximity_alert_notification(self):
+        """Trigger a manual proximity alert for testing"""
+        try:
+            current_time = time.time() * 1000
+            self.current_data.alert = True
+            self.current_data.alertType = "proximity_alert"
+            self.last_alert_time = current_time
+            self.last_notification_time = current_time
+            
+            if self.notification_handler:
+                return self.notification_handler.trigger_notification("proximity_alert")
+            return False
+        except Exception as e:
+            logger.error(f"Error triggering proximity alert: {e}")
+            return False
     
     def read_imu_data(self):
         
